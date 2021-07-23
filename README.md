@@ -7,6 +7,7 @@
 5. Frontend is also considered as part of the system, so the communication between frontend and backend will be involved as well
 6. User can describe what communication is required among the components and how fatal each module is, the programming language will create a infrastructure for the user automatically
 7. Security, keys, tokens, certificates will automatically be generated and used for communication, no manual definition is required
+8. It could automatically set up common components for you if required
 
 ## Example of System Description
 
@@ -21,4 +22,3 @@
 9. oauth_server: jwt_token_verification server
 10. hub_server: redis cache key-value pair service
 11. database_server: postgresql database service
-
