@@ -239,15 +239,19 @@ TypeInfo *check_binary_operation(SemanticAnalyzer *analyzer, OperatorType op,
             }
         }
 
-        // 普通算术运算
-        if (left->base_type != TYPE_INT && left->base_type != TYPE_FLOAT)
+        // 普通算术运算：允许 int, float, double
+        if (left->base_type != TYPE_INT && left->base_type != TYPE_FLOAT && 
+            left->base_type != TYPE_DOUBLE && left->base_type != TYPE_LONG &&
+            left->base_type != TYPE_SHORT && left->base_type != TYPE_CHAR)
         {
             semantic_error(analyzer, lineno,
                            "Invalid left operand type for arithmetic operation: %s",
                            type_to_string(left));
             return create_type(TYPE_UNKNOWN);
         }
-        if (right->base_type != TYPE_INT && right->base_type != TYPE_FLOAT)
+        if (right->base_type != TYPE_INT && right->base_type != TYPE_FLOAT && 
+            right->base_type != TYPE_DOUBLE && right->base_type != TYPE_LONG &&
+            right->base_type != TYPE_SHORT && right->base_type != TYPE_CHAR)
         {
             semantic_error(analyzer, lineno,
                            "Invalid right operand type for arithmetic operation: %s",
@@ -255,12 +259,8 @@ TypeInfo *check_binary_operation(SemanticAnalyzer *analyzer, OperatorType op,
             return create_type(TYPE_UNKNOWN);
         }
 
-        // 如果任一操作数是 float，结果是 float
-        if (left->base_type == TYPE_FLOAT || right->base_type == TYPE_FLOAT)
-        {
-            return create_type(TYPE_FLOAT);
-        }
-        return create_type(TYPE_INT);
+        // 使用通用算术转换来确定结果类型
+        return usual_arithmetic_conversion(left, right);
     }
 
     // 关系运算符

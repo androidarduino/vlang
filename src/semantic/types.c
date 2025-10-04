@@ -96,11 +96,21 @@ int types_compatible(TypeInfo *t1, TypeInfo *t2)
     // 基本类型必须相同
     if (t1->base_type != t2->base_type)
     {
-        // 特殊情况：int 和 float 可以隐式转换
-        if ((t1->base_type == TYPE_INT && t2->base_type == TYPE_FLOAT) ||
-            (t1->base_type == TYPE_FLOAT && t2->base_type == TYPE_INT))
+        // 特殊情况：数值类型之间可以隐式转换
+        // int, float, double, long, short, char, unsigned 可以互相转换
+        DataType numeric_types[] = {TYPE_INT, TYPE_FLOAT, TYPE_DOUBLE, 
+                                     TYPE_LONG, TYPE_SHORT, TYPE_CHAR, TYPE_UNSIGNED};
+        int t1_is_numeric = 0, t2_is_numeric = 0;
+        
+        for (int i = 0; i < 7; i++)
         {
-            return 1;
+            if (t1->base_type == numeric_types[i]) t1_is_numeric = 1;
+            if (t2->base_type == numeric_types[i]) t2_is_numeric = 1;
+        }
+        
+        if (t1_is_numeric && t2_is_numeric)
+        {
+            return 1; // 数值类型间可以转换
         }
         return 0;
     }

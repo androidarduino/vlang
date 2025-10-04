@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
+#include <stdint.h>
 
 // 创建代码生成器
 CodeGenerator *codegen_create(FILE *output, SemanticAnalyzer *analyzer)
@@ -287,9 +288,20 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
         break;
 
     case AST_FLOAT_LITERAL:
-        // 简化：将 float 转为 int
-        emit(gen, "    movq $%d, %%rax  # Load float as int", (int)node->value.float_val);
+    {
+        // 将浮点数转换为IEEE 754位表示
+        float f = node->value.float_val;
+        union {
+            float f;
+            uint32_t i;
+        } converter;
+        converter.f = f;
+        
+        // 加载IEEE 754位表示（符号扩展到64位）
+        emit(gen, "    movq $%u, %%rax  # Load float literal %.2f (IEEE 754: 0x%08x)", 
+             converter.i, f, converter.i);
         break;
+    }
 
     case AST_SIZEOF_EXPR:
     {
