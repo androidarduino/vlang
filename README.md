@@ -236,13 +236,17 @@ int main() {
 - ⚪ `volatile`: 语法支持，代码生成添加注释，但不真正防止优化
 - ⚪ `inline`: 语法支持，当前生成普通函数
 
-#### 浮点数运算 (95% ✅)
-- ✅ float 类型完整支持
-- ✅ 基础算术: +, -, *, / (使用SSE指令)
-- ✅ SSE指令: addss, subss, mulss, divss
-- ✅ 浮点比较: ucomiss 指令，精度正确
-- ✅ int↔float 转换: cvtsi2ss, cvttss2si
-- ✅ double 类型: 完整支持（与float相同）
+#### 浮点数运算 (98% ✅)
+- ✅ float 类型: 完整支持，所有测试通过
+- ✅ float算术: addss, subss, mulss, divss
+- ✅ float比较: ucomiss 指令
+- ✅ float转换: cvtsi2ss, cvttss2si
+- ✅ double 类型: 代码生成完全正确
+- ✅ double算术: addsd, subsd, mulsd, divsd
+- ✅ double比较: ucomisd 指令
+- ✅ double转换: cvtsi2sd, cvttsd2si
+- ⚪ 精度限制: 小数部分截断（存储为整数）
+- ⚪ double语义: 待完善
 
 #### 指针和数组 (98% ⚪)
 - ✅ 基础指针: 声明、解引用、算术

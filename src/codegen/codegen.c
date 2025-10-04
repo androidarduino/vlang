@@ -416,7 +416,7 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
             {
                 int left_is_double = is_double_expression(node->children[0]);
                 int right_is_double = is_double_expression(node->children[1]);
-                
+
                 if (left_is_double || right_is_double)
                 {
                     // Double加法
@@ -469,7 +469,7 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
             {
                 int left_is_double = is_double_expression(node->children[0]);
                 int right_is_double = is_double_expression(node->children[1]);
-                
+
                 if (left_is_double || right_is_double)
                 {
                     // Double减法
@@ -504,7 +504,7 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
             {
                 int left_is_double = is_double_expression(node->children[0]);
                 int right_is_double = is_double_expression(node->children[1]);
-                
+
                 if (left_is_double || right_is_double)
                 {
                     // Double乘法
@@ -539,7 +539,7 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
             {
                 int left_is_double = is_double_expression(node->children[0]);
                 int right_is_double = is_double_expression(node->children[1]);
-                
+
                 if (left_is_double || right_is_double)
                 {
                     // Double除法
@@ -576,7 +576,7 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
             int right_is_float = is_float_expression(node->children[1]);
             int left_is_double = is_double_expression(node->children[0]);
             int right_is_double = is_double_expression(node->children[1]);
-            
+
             if (left_is_double || right_is_double)
             {
                 emit(gen, "    movq %%rax, %%xmm0  # Load left to xmm0");
@@ -607,7 +607,7 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
             int right_is_float = is_float_expression(node->children[1]);
             int left_is_double = is_double_expression(node->children[0]);
             int right_is_double = is_double_expression(node->children[1]);
-            
+
             if (left_is_double || right_is_double)
             {
                 emit(gen, "    movq %%rax, %%xmm0");
@@ -638,7 +638,7 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
             int right_is_float = is_float_expression(node->children[1]);
             int left_is_double = is_double_expression(node->children[0]);
             int right_is_double = is_double_expression(node->children[1]);
-            
+
             if (left_is_double || right_is_double)
             {
                 emit(gen, "    movq %%rax, %%xmm0");
@@ -669,7 +669,7 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
             int right_is_float = is_float_expression(node->children[1]);
             int left_is_double = is_double_expression(node->children[0]);
             int right_is_double = is_double_expression(node->children[1]);
-            
+
             if (left_is_double || right_is_double)
             {
                 emit(gen, "    movq %%rax, %%xmm0");
@@ -700,7 +700,7 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
             int right_is_float = is_float_expression(node->children[1]);
             int left_is_double = is_double_expression(node->children[0]);
             int right_is_double = is_double_expression(node->children[1]);
-            
+
             if (left_is_double || right_is_double)
             {
                 emit(gen, "    movq %%rax, %%xmm0");
@@ -731,7 +731,7 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
             int right_is_float = is_float_expression(node->children[1]);
             int left_is_double = is_double_expression(node->children[0]);
             int right_is_double = is_double_expression(node->children[1]);
-            
+
             if (left_is_double || right_is_double)
             {
                 emit(gen, "    movq %%rax, %%xmm0");
