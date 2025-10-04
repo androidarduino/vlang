@@ -550,6 +550,50 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
                 }
             }
             break;
+        case OP_PREINC:
+        case OP_PREDEC:
+        {
+            // 前缀递增/递减：++i, --i
+            // 先递增/递减，然后返回新值
+            if (node->children[0]->type == AST_IDENTIFIER)
+            {
+                Symbol *symbol = (Symbol *)node->children[0]->semantic_info;
+                if (symbol)
+                {
+                    int offset = -(symbol->offset + 8);
+                    emit(gen, "    movq %d(%%rbp), %%rax  # Load variable", offset);
+                    if (node->value.op_type == OP_PREINC)
+                        emit(gen, "    addq $1, %%rax  # ++");
+                    else
+                        emit(gen, "    subq $1, %%rax  # --");
+                    emit(gen, "    movq %%rax, %d(%%rbp)  # Store back", offset);
+                }
+            }
+            break;
+        }
+        case OP_POSTINC:
+        case OP_POSTDEC:
+        {
+            // 后缀递增/递减：i++, i--
+            // 先返回旧值，然后递增/递减
+            if (node->children[0]->type == AST_IDENTIFIER)
+            {
+                Symbol *symbol = (Symbol *)node->children[0]->semantic_info;
+                if (symbol)
+                {
+                    int offset = -(symbol->offset + 8);
+                    emit(gen, "    movq %d(%%rbp), %%rax  # Load variable", offset);
+                    emit(gen, "    movq %%rax, %%rbx  # Save old value");
+                    if (node->value.op_type == OP_POSTINC)
+                        emit(gen, "    addq $1, %%rbx  # ++");
+                    else
+                        emit(gen, "    subq $1, %%rbx  # --");
+                    emit(gen, "    movq %%rbx, %d(%%rbp)  # Store new value", offset);
+                    // rax still holds old value
+                }
+            }
+            break;
+        }
         case OP_DEREF:
         case OP_NOT:
         case OP_NEG:
@@ -633,44 +677,97 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
         ASTNode *array_node = node->children[0];
         ASTNode *index_node = node->children[1];
 
-        // 计算索引
+        // 计算当前维度的索引
         gen_expression(gen, index_node);
-        emit(gen, "    movq %%rax, %%rcx  # Save index in rcx");
+        push_reg(gen, "rax"); // 保存当前索引到栈
 
-        // 获取数组基地址到 rax
+        // 获取数组基地址
         if (array_node->type == AST_IDENTIFIER)
         {
             Symbol *symbol = (Symbol *)array_node->semantic_info;
             if (symbol)
             {
                 // 数组在栈上，arr[0]的地址
-                // symbol->offset = 0 意味着第一个元素在 -8(%rbp)
                 int base_offset = -(symbol->offset + 8);
                 emit(gen, "    leaq %d(%%rbp), %%rax  # Load array base (arr[0])", base_offset);
             }
         }
+        else if (array_node->type == AST_ARRAY_SUBSCRIPT)
+        {
+            // 嵌套数组访问：递归计算内层地址
+            gen_expression(gen, array_node);
+            // rax 中已经是内层的地址
+        }
         else
         {
-            // 更复杂的数组表达式
+            // 其他表达式
             gen_expression(gen, array_node);
-            // 基地址已经在 rax 中
         }
 
+        // 恢复当前维度的索引
+        pop_reg(gen, "rcx");
+
         // 计算偏移：index * element_size（8字节）
-        // rcx 中是索引，rax 中是基地址（arr[0]的地址）
         emit(gen, "    imulq $8, %%rcx  # Calculate offset (index * 8)");
 
         // 计算元素地址: base - offset（因为栈向下增长）
         emit(gen, "    subq %%rcx, %%rax  # Subtract offset (stack grows down)");
 
-        // 加载元素值
-        emit(gen, "    movq (%%rax), %%rax  # Load array element");
+        // 检查是否应该加载值
+        // 通过当前节点的semantic_info（返回类型）判断
+        // 如果返回类型仍然是数组（array_dimensions > 0），则不加载值
+        int should_load_value = 1; // 默认加载值
+
+        if (node->semantic_info)
+        {
+            TypeInfo *result_type = (TypeInfo *)node->semantic_info;
+            if (result_type && result_type->array_dimensions > 0)
+            {
+                // 返回类型是多维数组，不加载值（保留地址给下一层）
+                should_load_value = 0;
+            }
+        }
+
+        if (should_load_value)
+        {
+            // 一维数组或多维数组的最后一次访问：加载元素值
+            emit(gen, "    movq (%%rax), %%rax  # Load array element");
+        }
+        // 否则，rax 中已经是地址，用于下一层数组访问
+
         break;
     }
 
     case AST_INIT_LIST:
     {
         // 初始化列表在声明中处理，这里不生成代码
+        break;
+    }
+
+    case AST_TERNARY_EXPR:
+    {
+        // 三元运算符: condition ? true_expr : false_expr
+        if (node->num_children < 3)
+            break;
+
+        int false_label = new_label(gen);
+        int end_label = new_label(gen);
+
+        // 计算条件
+        gen_expression(gen, node->children[0]);
+        emit(gen, "    testq %%rax, %%rax  # Test condition");
+        emit(gen, "    je .L%d  # Jump if false", false_label);
+
+        // true分支
+        gen_expression(gen, node->children[1]);
+        emit(gen, "    jmp .L%d  # Skip false branch", end_label);
+
+        // false分支
+        emit(gen, ".L%d:  # False branch", false_label);
+        gen_expression(gen, node->children[2]);
+
+        // 结束
+        emit(gen, ".L%d:  # End ternary", end_label);
         break;
     }
 
@@ -773,20 +870,34 @@ void gen_statement(CodeGenerator *gen, ASTNode *node)
 
                         if (symbol)
                         {
-                            // 初始化每个数组元素
-                            for (int i = 0; i < init_expr->num_children; i++)
-                            {
-                                // 计算初始化表达式的值
-                                gen_expression(gen, init_expr->children[i]);
+                            // 展平多维初始化列表到一维序列
+                            int flat_index = 0;
 
-                                // 存储到数组元素位置
-                                // 数组在栈上：arr[0]在-offset-8, arr[1]在-offset-16, ...
-                                // offset是从栈顶开始的偏移（正值）
-                                // rbp相对：arr[i] = -(offset + (i+1)*8)
-                                int elem_offset = -(symbol->offset + (i + 1) * 8);
-                                emit(gen, "    movq %%rax, %d(%%rbp)  # Initialize array[%d]",
-                                     elem_offset, i);
+                            // 递归函数：展平初始化列表
+                            void flatten_init_list(ASTNode * list, int *index_ptr)
+                            {
+                                for (int i = 0; i < list->num_children; i++)
+                                {
+                                    ASTNode *child = list->children[i];
+                                    if (child->type == AST_INIT_LIST)
+                                    {
+                                        // 递归处理嵌套列表
+                                        flatten_init_list(child, index_ptr);
+                                    }
+                                    else
+                                    {
+                                        // 叶子节点：计算并存储
+                                        gen_expression(gen, child);
+                                        int elem_offset = -(symbol->offset + (*index_ptr + 1) * 8);
+                                        emit(gen, "    movq %%rax, %d(%%rbp)  # Initialize array[%d]",
+                                             elem_offset, *index_ptr);
+                                        (*index_ptr)++;
+                                    }
+                                }
                             }
+
+                            // 展平并初始化所有元素
+                            flatten_init_list(init_expr, &flat_index);
                         }
                     }
                     else

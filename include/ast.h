@@ -33,7 +33,8 @@ typedef enum
     AST_ARRAY_SUBSCRIPT, // 数组下标访问 a[i]
     AST_INIT_LIST,       // 初始化列表 {1, 2, 3}
     AST_STRUCT_DEF,      // 结构体定义
-    AST_MEMBER_ACCESS    // 成员访问 a.b 或 a->b
+    AST_MEMBER_ACCESS,   // 成员访问 a.b 或 a->b
+    AST_TERNARY_EXPR     // 三元运算符 a ? b : c
 } ASTNodeType;
 
 // 运算符类型
@@ -55,10 +56,14 @@ typedef enum
     OP_ASSIGN,
     OP_NEG,
     OP_NOT,
-    OP_ADDR,   // 取地址 &
-    OP_DEREF,  // 解引用 *
-    OP_MEMBER, // 成员访问 .
-    OP_ARROW   // 指针成员访问 ->
+    OP_ADDR,    // 取地址 &
+    OP_DEREF,   // 解引用 *
+    OP_MEMBER,  // 成员访问 .
+    OP_ARROW,   // 指针成员访问 ->
+    OP_PREINC,  // 前缀递增 ++i
+    OP_PREDEC,  // 前缀递减 --i
+    OP_POSTINC, // 后缀递增 i++
+    OP_POSTDEC  // 后缀递减 i--
 } OperatorType;
 
 // 前向声明

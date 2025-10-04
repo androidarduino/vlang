@@ -383,6 +383,18 @@ TypeInfo *analyze_expression(SemanticAnalyzer *analyzer, ASTNode *node)
             deref_type->pointer_level = operand_type->pointer_level - 1;
             return deref_type;
         }
+        else if (node->value.op_type == OP_PREINC || node->value.op_type == OP_PREDEC ||
+                 node->value.op_type == OP_POSTINC || node->value.op_type == OP_POSTDEC)
+        {
+            // 递增递减运算符：检查操作数是否为左值（变量、数组元素等）
+            // 返回操作数的类型
+            if (operand_type->base_type != TYPE_INT && operand_type->pointer_level == 0)
+            {
+                semantic_warning(analyzer, node->lineno,
+                                 "Increment/decrement on non-integer/pointer type");
+            }
+            return operand_type;
+        }
 
         return operand_type;
     }
@@ -477,19 +489,46 @@ TypeInfo *analyze_expression(SemanticAnalyzer *analyzer, ASTNode *node)
 
         // 数组访问返回元素类型
         // 如果是指针，则返回指针指向的类型
+        TypeInfo *result_type = NULL;
+
         if (array_type->pointer_level > 0)
         {
-            TypeInfo *elem_type = create_type(array_type->base_type);
-            elem_type->pointer_level = array_type->pointer_level - 1;
-            elem_type->array_size = array_type->array_size;
-            return elem_type;
+            result_type = create_type(array_type->base_type);
+            result_type->pointer_level = array_type->pointer_level - 1;
+            result_type->array_size = array_type->array_size;
         }
-        else if (array_type->array_size >= 0)
+        else if (array_type->array_size >= 0 || array_type->array_dimensions > 0)
         {
-            // 数组类型，返回元素类型
-            TypeInfo *elem_type = create_type(array_type->base_type);
-            elem_type->pointer_level = array_type->pointer_level;
-            return elem_type;
+            // 数组类型，检查是否为多维数组
+            if (array_type->array_dimensions > 1)
+            {
+                // 多维数组：返回降低一维的数组类型
+                result_type = create_type(array_type->base_type);
+                result_type->pointer_level = array_type->pointer_level;
+                result_type->array_dimensions = array_type->array_dimensions - 1;
+
+                // 复制剩余维度的大小
+                if (result_type->array_dimensions > 0)
+                {
+                    result_type->array_sizes = (int *)malloc(result_type->array_dimensions * sizeof(int));
+                    for (int i = 0; i < result_type->array_dimensions; i++)
+                    {
+                        result_type->array_sizes[i] = array_type->array_sizes[i + 1];
+                    }
+                    // 设置第一维大小（用于代码生成）
+                    result_type->array_size = result_type->array_sizes[0];
+                }
+                else
+                {
+                    result_type->array_size = -1;
+                }
+            }
+            else
+            {
+                // 一维数组：返回元素类型
+                result_type = create_type(array_type->base_type);
+                result_type->pointer_level = array_type->pointer_level;
+            }
         }
         else
         {
@@ -497,6 +536,44 @@ TypeInfo *analyze_expression(SemanticAnalyzer *analyzer, ASTNode *node)
                            "Cannot subscript non-array type: %s",
                            type_to_string(array_type));
             return create_type(TYPE_UNKNOWN);
+        }
+
+        // 将返回类型附加到节点，供代码生成使用
+        node->semantic_info = (void *)result_type;
+        return result_type;
+    }
+
+    case AST_TERNARY_EXPR:
+    {
+        // 三元运算符: condition ? true_expr : false_expr
+        if (node->num_children < 3)
+        {
+            semantic_error(analyzer, node->lineno, "Ternary expression missing operands");
+            return create_type(TYPE_UNKNOWN);
+        }
+
+        TypeInfo *cond_type = analyze_expression(analyzer, node->children[0]);
+        TypeInfo *true_type = analyze_expression(analyzer, node->children[1]);
+        TypeInfo *false_type = analyze_expression(analyzer, node->children[2]);
+
+        // 条件应该是整数或指针类型
+        if (cond_type->base_type != TYPE_INT && cond_type->pointer_level == 0)
+        {
+            semantic_warning(analyzer, node->lineno,
+                             "Ternary condition should be int or pointer type");
+        }
+
+        // 返回类型：如果两个分支类型相同，返回该类型；否则返回第一个分支的类型
+        if (types_compatible(true_type, false_type))
+        {
+            return true_type;
+        }
+        else
+        {
+            semantic_warning(analyzer, node->lineno,
+                             "Type mismatch in ternary branches: %s vs %s",
+                             type_to_string(true_type), type_to_string(false_type));
+            return true_type;
         }
     }
 

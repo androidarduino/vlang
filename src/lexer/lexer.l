@@ -15,6 +15,10 @@ extern int yylineno;
 "float"         return FLOAT;
 "char"          return CHAR;
 "void"          return VOID;
+"short"         return SHORT;
+"long"          return LONG;
+"double"        return DOUBLE;
+"unsigned"      return UNSIGNED;
 "struct"        return STRUCT;
 "return"        return RETURN;
 "if"            return IF;
@@ -59,6 +63,8 @@ extern int yylineno;
 "*"             return STAR;
 "/"             return SLASH;
 "%"             return PERCENT;
+"++"            return INC_OP;
+"--"            return DEC_OP;
 
 "<"             return LT;
 ">"             return GT;
@@ -73,6 +79,8 @@ extern int yylineno;
 "&"             return AMPERSAND;
 "->"            return ARROW;
 "."             return DOT;
+"?"             return QUESTION;
+":"             return COLON;
 
 [ \t\n]+        /* Whitespace, ignore */
 

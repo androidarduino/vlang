@@ -29,12 +29,13 @@ ASTNode *ast_root = NULL;
 %token ASSIGN PLUS MINUS STAR SLASH PERCENT AMPERSAND
 %token LT GT LE_OP GE_OP EQ_OP NE_OP
 %token AND_OP OR_OP NOT_OP DOT ARROW
+%token INC_OP DEC_OP QUESTION COLON
 
 %type <node> program external_declaration function_definition declaration_specifiers
 %type <node> declarator compound_statement statement_list statement
 %type <node> declaration init_declarator parameter_list parameter_declaration
 %type <node> expression_statement selection_statement iteration_statement
-%type <node> jump_statement expression assignment_expression
+%type <node> jump_statement expression assignment_expression conditional_expression
 %type <node> logical_or_expression logical_and_expression
 %type <node> equality_expression relational_expression
 %type <node> additive_expression multiplicative_expression
@@ -285,10 +286,20 @@ expression:
     ;
 
 assignment_expression:
-    logical_or_expression { $$ = $1; }
+    conditional_expression { $$ = $1; }
     | unary_expression ASSIGN assignment_expression {
         $$ = create_binary_expr_node(OP_ASSIGN, $1, $3, yylineno);
         $$->type = AST_ASSIGN_EXPR;
+    }
+    ;
+
+conditional_expression:
+    logical_or_expression { $$ = $1; }
+    | logical_or_expression QUESTION expression COLON conditional_expression {
+        $$ = create_ast_node(AST_TERNARY_EXPR, yylineno);
+        add_child($$, $1);  // condition
+        add_child($$, $3);  // true_expr
+        add_child($$, $5);  // false_expr
     }
     ;
 
@@ -357,6 +368,12 @@ multiplicative_expression:
 
 unary_expression:
     postfix_expression { $$ = $1; }
+    | INC_OP unary_expression {
+        $$ = create_unary_expr_node(OP_PREINC, $2, yylineno);
+    }
+    | DEC_OP unary_expression {
+        $$ = create_unary_expr_node(OP_PREDEC, $2, yylineno);
+    }
     | NOT_OP unary_expression {
         $$ = create_unary_expr_node(OP_NOT, $2, yylineno);
     }
@@ -393,6 +410,12 @@ postfix_expression:
         $$ = create_binary_expr_node(OP_ARROW, $1, create_identifier_node($3, yylineno), yylineno);
         $$->type = AST_MEMBER_ACCESS;
         free($3);
+    }
+    | postfix_expression INC_OP {
+        $$ = create_unary_expr_node(OP_POSTINC, $1, yylineno);
+    }
+    | postfix_expression DEC_OP {
+        $$ = create_unary_expr_node(OP_POSTDEC, $1, yylineno);
     }
     ;
 
