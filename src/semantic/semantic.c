@@ -1426,9 +1426,18 @@ int analyze_program(SemanticAnalyzer *analyzer, ASTNode *root)
                 }
             }
         }
+        else if (child->type == AST_UNION_DEF)
+        {
+            // 联合体定义 - 类似结构体，暂时跳过
+        }
+        else if (child->type == AST_DECLARATION)
+        {
+            // 全局变量声明
+            analyze_declaration(analyzer, child);
+        }
         else
         {
-            semantic_error(analyzer, child->lineno, "Unexpected top-level declaration");
+            semantic_error(analyzer, child->lineno, "Unexpected top-level declaration (type: %d)", child->type);
         }
     }
 

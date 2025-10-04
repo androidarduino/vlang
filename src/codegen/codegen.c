@@ -177,13 +177,21 @@ static int is_pointer_expression(ASTNode *node)
         return 0;
 
     // 如果节点有semantic_info，尝试获取类型
-    if (node->semantic_info)
+    // 注意：semantic_info可能是Symbol*或TypeInfo*，需要安全处理
+    if (node->semantic_info && node->type == AST_IDENTIFIER)
     {
+        // 对于标识符节点，semantic_info是Symbol*
         Symbol *symbol = (Symbol *)node->semantic_info;
         if (symbol && symbol->type)
         {
             return symbol->type->pointer_level > 0;
         }
+    }
+    else if (node->semantic_info)
+    {
+        // 对于其他节点，semantic_info可能是TypeInfo*
+        // 但为了安全，我们不尝试访问它
+        // 只依赖于下面的AST节点类型判断
     }
 
     // 对于一元表达式（取地址），结果是指针
@@ -194,6 +202,74 @@ static int is_pointer_expression(ASTNode *node)
 
     // 对于数组下标，结果不是指针（是元素值）
     // 但 &arr[i] 是指针
+
+    return 0;
+}
+
+// 辅助函数：检查表达式是否为浮点类型
+static int is_float_expression(ASTNode *node)
+{
+    if (!node)
+        return 0;
+
+    // 如果节点有semantic_info，尝试获取类型
+    if (node->semantic_info && node->type == AST_IDENTIFIER)
+    {
+        // 对于标识符节点，semantic_info是Symbol*
+        Symbol *symbol = (Symbol *)node->semantic_info;
+        if (symbol && symbol->type)
+        {
+            return (symbol->type->base_type == TYPE_FLOAT ||
+                    symbol->type->base_type == TYPE_DOUBLE);
+        }
+    }
+    else if (node->semantic_info)
+    {
+        // 对于表达式节点，semantic_info可能是TypeInfo*
+        TypeInfo *type = (TypeInfo *)node->semantic_info;
+        // 简单启发式：检查base_type是否在有效范围
+        if ((int)type->base_type >= 0 && (int)type->base_type < 20)
+        {
+            return (type->base_type == TYPE_FLOAT ||
+                    type->base_type == TYPE_DOUBLE);
+        }
+    }
+
+    // 浮点数字面量
+    if (node->type == AST_FLOAT_LITERAL)
+    {
+        return 1;
+    }
+
+    return 0;
+}
+
+// 辅助函数：检查表达式是否为double类型
+static int is_double_expression(ASTNode *node)
+{
+    if (!node)
+        return 0;
+
+    // 如果节点有semantic_info，尝试获取类型
+    if (node->semantic_info && node->type == AST_IDENTIFIER)
+    {
+        // 对于标识符节点，semantic_info是Symbol*
+        Symbol *symbol = (Symbol *)node->semantic_info;
+        if (symbol && symbol->type)
+        {
+            return (symbol->type->base_type == TYPE_DOUBLE);
+        }
+    }
+    else if (node->semantic_info)
+    {
+        // 对于表达式节点，semantic_info可能是TypeInfo*
+        TypeInfo *type = (TypeInfo *)node->semantic_info;
+        // 简单启发式：检查base_type是否在有效范围
+        if ((int)type->base_type >= 0 && (int)type->base_type < 20)
+        {
+            return (type->base_type == TYPE_DOUBLE);
+        }
+    }
 
     return 0;
 }
@@ -319,6 +395,10 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
             int left_is_ptr = is_pointer_expression(node->children[0]);
             int right_is_ptr = is_pointer_expression(node->children[1]);
 
+            // 检查是否是浮点运算
+            int left_is_float = is_float_expression(node->children[0]);
+            int right_is_float = is_float_expression(node->children[1]);
+
             if (left_is_ptr && !right_is_ptr)
             {
                 // 指针 + 整数：缩放整数并减去（栈向下增长）
@@ -332,10 +412,32 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
                 emit(gen, "    subq %%rax, %%rbx  # Add (integer + pointer, stack grows down)");
                 emit(gen, "    movq %%rbx, %%rax  # Result in rax");
             }
+            else if (left_is_float || right_is_float)
+            {
+                int left_is_double = is_double_expression(node->children[0]);
+                int right_is_double = is_double_expression(node->children[1]);
+                
+                if (left_is_double || right_is_double)
+                {
+                    // Double加法
+                    emit(gen, "    cvtsi2sd %%rax, %%xmm0  # Convert left int to double");
+                    emit(gen, "    cvtsi2sd %%rbx, %%xmm1  # Convert right int to double");
+                    emit(gen, "    addsd %%xmm1, %%xmm0  # Double add");
+                    emit(gen, "    cvttsd2si %%xmm0, %%rax  # Convert result to int");
+                }
+                else
+                {
+                    // Float加法
+                    emit(gen, "    cvtsi2ss %%rax, %%xmm0  # Convert left int to float");
+                    emit(gen, "    cvtsi2ss %%rbx, %%xmm1  # Convert right int to float");
+                    emit(gen, "    addss %%xmm1, %%xmm0  # Float add");
+                    emit(gen, "    cvttss2si %%xmm0, %%rax  # Convert result to int");
+                }
+            }
             else
             {
                 // 普通整数加法
-                emit(gen, "    addq %%rbx, %%rax  # Add");
+                emit(gen, "    addq %%rbx, %%rax  # Integer add");
             }
             break;
         }
@@ -344,6 +446,10 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
             // 检查是否是指针算术
             int left_is_ptr = is_pointer_expression(node->children[0]);
             int right_is_ptr = is_pointer_expression(node->children[1]);
+
+            // 检查是否是浮点运算
+            int left_is_float = is_float_expression(node->children[0]);
+            int right_is_float = is_float_expression(node->children[1]);
 
             if (left_is_ptr && !right_is_ptr)
             {
@@ -359,55 +465,297 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
                 emit(gen, "    cqto  # Sign extend");
                 emit(gen, "    idivq %%rbx  # Divide by element size");
             }
+            else if (left_is_float || right_is_float)
+            {
+                int left_is_double = is_double_expression(node->children[0]);
+                int right_is_double = is_double_expression(node->children[1]);
+                
+                if (left_is_double || right_is_double)
+                {
+                    // Double减法
+                    emit(gen, "    cvtsi2sd %%rax, %%xmm0  # Convert left int to double");
+                    emit(gen, "    cvtsi2sd %%rbx, %%xmm1  # Convert right int to double");
+                    emit(gen, "    subsd %%xmm1, %%xmm0  # Double subtract");
+                    emit(gen, "    cvttsd2si %%xmm0, %%rax  # Convert result to int");
+                }
+                else
+                {
+                    // Float减法
+                    emit(gen, "    cvtsi2ss %%rax, %%xmm0  # Convert left int to float");
+                    emit(gen, "    cvtsi2ss %%rbx, %%xmm1  # Convert right int to float");
+                    emit(gen, "    subss %%xmm1, %%xmm0  # Float subtract");
+                    emit(gen, "    cvttss2si %%xmm0, %%rax  # Convert result to int");
+                }
+            }
             else
             {
                 // 普通整数减法
-                emit(gen, "    subq %%rbx, %%rax  # Subtract");
+                emit(gen, "    subq %%rbx, %%rax  # Integer subtract");
             }
             break;
         }
         case OP_MUL:
-            emit(gen, "    imulq %%rbx, %%rax  # Multiply");
+        {
+            // 检查是否为浮点类型
+            int left_is_float = is_float_expression(node->children[0]);
+            int right_is_float = is_float_expression(node->children[1]);
+
+            if (left_is_float || right_is_float)
+            {
+                int left_is_double = is_double_expression(node->children[0]);
+                int right_is_double = is_double_expression(node->children[1]);
+                
+                if (left_is_double || right_is_double)
+                {
+                    // Double乘法
+                    emit(gen, "    cvtsi2sd %%rax, %%xmm0  # Convert left int to double");
+                    emit(gen, "    cvtsi2sd %%rbx, %%xmm1  # Convert right int to double");
+                    emit(gen, "    mulsd %%xmm1, %%xmm0  # Double multiply");
+                    emit(gen, "    cvttsd2si %%xmm0, %%rax  # Convert result to int");
+                }
+                else
+                {
+                    // Float乘法
+                    emit(gen, "    cvtsi2ss %%rax, %%xmm0  # Convert left int to float");
+                    emit(gen, "    cvtsi2ss %%rbx, %%xmm1  # Convert right int to float");
+                    emit(gen, "    mulss %%xmm1, %%xmm0  # Float multiply");
+                    emit(gen, "    cvttss2si %%xmm0, %%rax  # Convert result to int");
+                }
+            }
+            else
+            {
+                // 整数乘法
+                emit(gen, "    imulq %%rbx, %%rax  # Integer multiply");
+            }
             break;
+        }
         case OP_DIV:
-            emit(gen, "    cqto  # Sign extend");
-            emit(gen, "    idivq %%rbx  # Divide");
+        {
+            // 检查是否为浮点类型
+            int left_is_float = is_float_expression(node->children[0]);
+            int right_is_float = is_float_expression(node->children[1]);
+
+            if (left_is_float || right_is_float)
+            {
+                int left_is_double = is_double_expression(node->children[0]);
+                int right_is_double = is_double_expression(node->children[1]);
+                
+                if (left_is_double || right_is_double)
+                {
+                    // Double除法
+                    emit(gen, "    cvtsi2sd %%rax, %%xmm0  # Convert dividend int to double");
+                    emit(gen, "    cvtsi2sd %%rbx, %%xmm1  # Convert divisor int to double");
+                    emit(gen, "    divsd %%xmm1, %%xmm0  # Double divide");
+                    emit(gen, "    cvttsd2si %%xmm0, %%rax  # Convert result to int");
+                }
+                else
+                {
+                    // Float除法
+                    emit(gen, "    cvtsi2ss %%rax, %%xmm0  # Convert dividend int to float");
+                    emit(gen, "    cvtsi2ss %%rbx, %%xmm1  # Convert divisor int to float");
+                    emit(gen, "    divss %%xmm1, %%xmm0  # Float divide");
+                    emit(gen, "    cvttss2si %%xmm0, %%rax  # Convert result to int");
+                }
+            }
+            else
+            {
+                // 整数除法
+                emit(gen, "    cqto  # Sign extend");
+                emit(gen, "    idivq %%rbx  # Integer divide");
+            }
             break;
+        }
         case OP_MOD:
             emit(gen, "    cqto  # Sign extend");
             emit(gen, "    idivq %%rbx  # Modulo");
             emit(gen, "    movq %%rdx, %%rax  # Result in rax");
             break;
         case OP_LT:
-            emit(gen, "    cmpq %%rbx, %%rax  # Compare <");
-            emit(gen, "    setl %%al");
-            emit(gen, "    movzbq %%al, %%rax");
+        {
+            int left_is_float = is_float_expression(node->children[0]);
+            int right_is_float = is_float_expression(node->children[1]);
+            int left_is_double = is_double_expression(node->children[0]);
+            int right_is_double = is_double_expression(node->children[1]);
+            
+            if (left_is_double || right_is_double)
+            {
+                emit(gen, "    movq %%rax, %%xmm0  # Load left to xmm0");
+                emit(gen, "    movq %%rbx, %%xmm1  # Load right to xmm1");
+                emit(gen, "    ucomisd %%xmm1, %%xmm0  # Double compare");
+                emit(gen, "    setb %%al  # Set if below");
+                emit(gen, "    movzbq %%al, %%rax");
+            }
+            else if (left_is_float || right_is_float)
+            {
+                emit(gen, "    cvtsi2ss %%rax, %%xmm0  # Convert left to float");
+                emit(gen, "    cvtsi2ss %%rbx, %%xmm1  # Convert right to float");
+                emit(gen, "    ucomiss %%xmm1, %%xmm0  # Float compare");
+                emit(gen, "    setb %%al  # Set if below");
+                emit(gen, "    movzbq %%al, %%rax");
+            }
+            else
+            {
+                emit(gen, "    cmpq %%rbx, %%rax  # Integer compare <");
+                emit(gen, "    setl %%al");
+                emit(gen, "    movzbq %%al, %%rax");
+            }
             break;
+        }
         case OP_GT:
-            emit(gen, "    cmpq %%rbx, %%rax  # Compare >");
-            emit(gen, "    setg %%al");
-            emit(gen, "    movzbq %%al, %%rax");
+        {
+            int left_is_float = is_float_expression(node->children[0]);
+            int right_is_float = is_float_expression(node->children[1]);
+            int left_is_double = is_double_expression(node->children[0]);
+            int right_is_double = is_double_expression(node->children[1]);
+            
+            if (left_is_double || right_is_double)
+            {
+                emit(gen, "    movq %%rax, %%xmm0");
+                emit(gen, "    movq %%rbx, %%xmm1");
+                emit(gen, "    ucomisd %%xmm1, %%xmm0");
+                emit(gen, "    seta %%al");
+                emit(gen, "    movzbq %%al, %%rax");
+            }
+            else if (left_is_float || right_is_float)
+            {
+                emit(gen, "    cvtsi2ss %%rax, %%xmm0");
+                emit(gen, "    cvtsi2ss %%rbx, %%xmm1");
+                emit(gen, "    ucomiss %%xmm1, %%xmm0");
+                emit(gen, "    seta %%al");
+                emit(gen, "    movzbq %%al, %%rax");
+            }
+            else
+            {
+                emit(gen, "    cmpq %%rbx, %%rax");
+                emit(gen, "    setg %%al");
+                emit(gen, "    movzbq %%al, %%rax");
+            }
             break;
+        }
         case OP_LE:
-            emit(gen, "    cmpq %%rbx, %%rax  # Compare <=");
-            emit(gen, "    setle %%al");
-            emit(gen, "    movzbq %%al, %%rax");
+        {
+            int left_is_float = is_float_expression(node->children[0]);
+            int right_is_float = is_float_expression(node->children[1]);
+            int left_is_double = is_double_expression(node->children[0]);
+            int right_is_double = is_double_expression(node->children[1]);
+            
+            if (left_is_double || right_is_double)
+            {
+                emit(gen, "    movq %%rax, %%xmm0");
+                emit(gen, "    movq %%rbx, %%xmm1");
+                emit(gen, "    ucomisd %%xmm1, %%xmm0");
+                emit(gen, "    setbe %%al");
+                emit(gen, "    movzbq %%al, %%rax");
+            }
+            else if (left_is_float || right_is_float)
+            {
+                emit(gen, "    cvtsi2ss %%rax, %%xmm0");
+                emit(gen, "    cvtsi2ss %%rbx, %%xmm1");
+                emit(gen, "    ucomiss %%xmm1, %%xmm0");
+                emit(gen, "    setbe %%al");
+                emit(gen, "    movzbq %%al, %%rax");
+            }
+            else
+            {
+                emit(gen, "    cmpq %%rbx, %%rax");
+                emit(gen, "    setle %%al");
+                emit(gen, "    movzbq %%al, %%rax");
+            }
             break;
+        }
         case OP_GE:
-            emit(gen, "    cmpq %%rbx, %%rax  # Compare >=");
-            emit(gen, "    setge %%al");
-            emit(gen, "    movzbq %%al, %%rax");
+        {
+            int left_is_float = is_float_expression(node->children[0]);
+            int right_is_float = is_float_expression(node->children[1]);
+            int left_is_double = is_double_expression(node->children[0]);
+            int right_is_double = is_double_expression(node->children[1]);
+            
+            if (left_is_double || right_is_double)
+            {
+                emit(gen, "    movq %%rax, %%xmm0");
+                emit(gen, "    movq %%rbx, %%xmm1");
+                emit(gen, "    ucomisd %%xmm1, %%xmm0");
+                emit(gen, "    setae %%al");
+                emit(gen, "    movzbq %%al, %%rax");
+            }
+            else if (left_is_float || right_is_float)
+            {
+                emit(gen, "    cvtsi2ss %%rax, %%xmm0");
+                emit(gen, "    cvtsi2ss %%rbx, %%xmm1");
+                emit(gen, "    ucomiss %%xmm1, %%xmm0");
+                emit(gen, "    setae %%al");
+                emit(gen, "    movzbq %%al, %%rax");
+            }
+            else
+            {
+                emit(gen, "    cmpq %%rbx, %%rax");
+                emit(gen, "    setge %%al");
+                emit(gen, "    movzbq %%al, %%rax");
+            }
             break;
+        }
         case OP_EQ:
-            emit(gen, "    cmpq %%rbx, %%rax  # Compare ==");
-            emit(gen, "    sete %%al");
-            emit(gen, "    movzbq %%al, %%rax");
+        {
+            int left_is_float = is_float_expression(node->children[0]);
+            int right_is_float = is_float_expression(node->children[1]);
+            int left_is_double = is_double_expression(node->children[0]);
+            int right_is_double = is_double_expression(node->children[1]);
+            
+            if (left_is_double || right_is_double)
+            {
+                emit(gen, "    movq %%rax, %%xmm0");
+                emit(gen, "    movq %%rbx, %%xmm1");
+                emit(gen, "    ucomisd %%xmm1, %%xmm0");
+                emit(gen, "    sete %%al");
+                emit(gen, "    movzbq %%al, %%rax");
+            }
+            else if (left_is_float || right_is_float)
+            {
+                emit(gen, "    cvtsi2ss %%rax, %%xmm0");
+                emit(gen, "    cvtsi2ss %%rbx, %%xmm1");
+                emit(gen, "    ucomiss %%xmm1, %%xmm0");
+                emit(gen, "    sete %%al");
+                emit(gen, "    movzbq %%al, %%rax");
+            }
+            else
+            {
+                emit(gen, "    cmpq %%rbx, %%rax");
+                emit(gen, "    sete %%al");
+                emit(gen, "    movzbq %%al, %%rax");
+            }
             break;
+        }
         case OP_NE:
-            emit(gen, "    cmpq %%rbx, %%rax  # Compare !=");
-            emit(gen, "    setne %%al");
-            emit(gen, "    movzbq %%al, %%rax");
+        {
+            int left_is_float = is_float_expression(node->children[0]);
+            int right_is_float = is_float_expression(node->children[1]);
+            int left_is_double = is_double_expression(node->children[0]);
+            int right_is_double = is_double_expression(node->children[1]);
+            
+            if (left_is_double || right_is_double)
+            {
+                emit(gen, "    movq %%rax, %%xmm0");
+                emit(gen, "    movq %%rbx, %%xmm1");
+                emit(gen, "    ucomisd %%xmm1, %%xmm0");
+                emit(gen, "    setne %%al");
+                emit(gen, "    movzbq %%al, %%rax");
+            }
+            else if (left_is_float || right_is_float)
+            {
+                emit(gen, "    cvtsi2ss %%rax, %%xmm0");
+                emit(gen, "    cvtsi2ss %%rbx, %%xmm1");
+                emit(gen, "    ucomiss %%xmm1, %%xmm0");
+                emit(gen, "    setne %%al");
+                emit(gen, "    movzbq %%al, %%rax");
+            }
+            else
+            {
+                emit(gen, "    cmpq %%rbx, %%rax");
+                emit(gen, "    setne %%al");
+                emit(gen, "    movzbq %%al, %%rax");
+            }
             break;
+        }
         case OP_AND:
             // 逻辑与: 两个都非零则为1，否则为0
             emit(gen, "    testq %%rax, %%rax  # Test left operand");
@@ -673,7 +1021,7 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
 
         // 生成被转换的表达式
         gen_expression(gen, node->children[1]);
-        
+
         // 根据目标类型进行转换
         TypeInfo *target_type = (TypeInfo *)node->semantic_info;
         if (target_type)
@@ -683,7 +1031,7 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
                 // 转换到float: int -> float
                 emit(gen, "    cvtsi2ss %%rax, %%xmm0  # Cast int to float");
             }
-            else if (target_type->base_type == TYPE_INT || 
+            else if (target_type->base_type == TYPE_INT ||
                      target_type->base_type == TYPE_LONG ||
                      target_type->base_type == TYPE_SHORT ||
                      target_type->base_type == TYPE_CHAR)
@@ -1050,8 +1398,16 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
             // 对于多维数组，如果还有维度，大小是剩余维度的总大小
             if (elem_type->array_dimensions > 0 && elem_type->array_sizes)
             {
-                element_size = 8; // 简化：内层元素固定8字节
-                // 如果需要精确计算：element_size = elem_type->array_sizes[0] * ... * 8
+                // 计算剩余维度的总大小
+                element_size = 1;
+                for (int d = 0; d < elem_type->array_dimensions; d++)
+                {
+                    if (elem_type->array_sizes[d] > 0)
+                    {
+                        element_size *= elem_type->array_sizes[d];
+                    }
+                }
+                element_size *= 8; // 基本元素大小（int = 8字节）
             }
             else
             {
