@@ -31,7 +31,7 @@ make
 编译器支持以下命令行选项：
 
 ```bash
-./cc [options] <input.c> [input2.c ...]
+./vc [options] <input.c> [input2.c ...]
 
 选项:
   -S           生成汇编代码 (.s 文件) ✨ 新增！
@@ -41,17 +41,17 @@ make
   -h, --help   显示帮助信息
 
 示例:
-  ./cc program.c              # 编译为可执行文件 'output'
-  ./cc -S program.c           # 生成 program.s (汇编代码) ✨
-  ./cc -o test test.c         # 编译为可执行文件 'test'
-  ./cc -c file1.c file2.c     # 生成 file1.o 和 file2.o
-  ./cc file1.c file2.c        # 编译并链接多个文件
-  ./cc --debug program.c      # 带调试信息编译
+  ./vc program.c              # 编译为可执行文件 'output'
+  ./vc -S program.c           # 生成 program.s (汇编代码) ✨
+  ./vc -o test test.c         # 编译为可执行文件 'test'
+  ./vc -c file1.c file2.c     # 生成 file1.o 和 file2.o
+  ./vc file1.c file2.c        # 编译并链接多个文件
+  ./vc --debug program.c      # 带调试信息编译
 ```
 
 ### 编译C程序
 ```bash
-./cc your_program.c
+./vc your_program.c
 ./output
 echo $?  # 查看返回值
 ```

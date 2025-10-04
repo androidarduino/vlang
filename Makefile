@@ -43,7 +43,7 @@ OBJS = $(BUILD_DIR)/lex.yy.o \
        $(BUILD_DIR)/main.o
 
 # Target executable
-TARGET = $(BIN_DIR)/cc
+TARGET = $(BIN_DIR)/vc
 
 # Colors for output
 GREEN = \033[0;32m
@@ -55,7 +55,7 @@ NC = \033[0m # No Color
 # Default target
 all: $(TARGET)
 	@echo "$(GREEN)✓ Build complete!$(NC)"
-	@echo "$(YELLOW)Run './cc <file.c>' to compile a C program$(NC)"
+	@echo "$(YELLOW)Run './vc <file.c>' to compile a C program$(NC)"
 
 # Create build directory
 $(BUILD_DIR):
@@ -134,11 +134,11 @@ test: $(TARGET)
 	@echo "$(YELLOW)Running tests...$(NC)"
 	@echo ""
 	@echo "Test 1: Simple return"
-	@echo 'int main() { return 42; }' | ./cc /dev/stdin -o test1.s
+	@echo 'int main() { return 42; }' | ./vc /dev/stdin -o test1.s
 	@./output; echo "Exit code: $$?"
 	@echo ""
 	@echo "Test 2: Variables and arithmetic"
-	@echo 'int main() { int x; int y; x = 10; y = 5; return x + y; }' | ./cc /dev/stdin -o test2.s
+	@echo 'int main() { int x; int y; x = 10; y = 5; return x + y; }' | ./vc /dev/stdin -o test2.s
 	@./output; echo "Exit code: $$?"
 	@echo ""
 	@echo "$(GREEN)✓ Tests complete$(NC)"
@@ -160,16 +160,16 @@ help:
 	@echo "  make test      # Run tests"
 	@echo ""
 	@echo "Compiler usage:"
-	@echo "  ./cc program.c              # Compile program.c"
-	@echo "  ./cc -o out.s program.c     # Specify output file"
-	@echo "  ./cc --debug program.c      # Enable debug output"
+	@echo "  ./vc program.c              # Compile program.c"
+	@echo "  ./vc -o out.s program.c     # Specify output file"
+	@echo "  ./vc --debug program.c      # Enable debug output"
 
 # Install (copy to system directory)
 install: $(TARGET)
 	@echo "Installing compiler to /usr/local/bin..."
 	@sudo cp $(TARGET) /usr/local/bin/
 	@echo "$(GREEN)✓ Installation complete$(NC)"
-	@echo "You can now run 'cc <file.c>' from anywhere"
+	@echo "You can now run 'vc <file.c>' from anywhere"
 
 # Development helpers
 rebuild: clean all
