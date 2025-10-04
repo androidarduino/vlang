@@ -348,6 +348,10 @@ TypeInfo *analyze_expression(SemanticAnalyzer *analyzer, ASTNode *node)
     case AST_FLOAT_LITERAL:
         return create_type(TYPE_FLOAT);
 
+    case AST_SIZEOF_EXPR:
+        // sizeof总是返回int类型（实际上是size_t，但我们简化为int）
+        return create_type(TYPE_INT);
+
     case AST_STRING_LITERAL:
         return create_type(TYPE_CHAR); // 简化：字符串视为 char
 

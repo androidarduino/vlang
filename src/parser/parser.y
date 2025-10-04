@@ -24,7 +24,7 @@ ASTNode *ast_root = NULL;
 %token <float_val> FLOATING_CONSTANT
 %token <string_val> CHARACTER_CONSTANT STRING_LITERAL
 
-%token INT FLOAT CHAR VOID SHORT LONG DOUBLE UNSIGNED STRUCT STATIC TYPEDEF ENUM RETURN IF ELSE WHILE DO FOR SWITCH CASE DEFAULT BREAK CONTINUE
+%token INT FLOAT CHAR VOID SHORT LONG DOUBLE UNSIGNED STRUCT UNION STATIC TYPEDEF ENUM SIZEOF RETURN IF ELSE WHILE DO FOR SWITCH CASE DEFAULT BREAK CONTINUE
 %token SEMICOLON LBRACE RBRACE COMMA LPAREN RPAREN LBRACKET RBRACKET
 %token ASSIGN ADD_ASSIGN SUB_ASSIGN MUL_ASSIGN DIV_ASSIGN MOD_ASSIGN
 %token AND_ASSIGN OR_ASSIGN XOR_ASSIGN LEFT_ASSIGN RIGHT_ASSIGN
@@ -47,6 +47,7 @@ ASTNode *ast_root = NULL;
 %type <node> argument_expression_list
 %type <node> initializer initializer_list
 %type <node> struct_specifier struct_declaration_list struct_declaration
+%type <node> union_specifier
 %type <node> enum_specifier enumerator_list
 
 %start program
@@ -69,6 +70,7 @@ external_declaration:
     function_definition { $$ = $1; }
     | declaration { $$ = $1; }
     | struct_specifier SEMICOLON { $$ = $1; }
+    | union_specifier SEMICOLON { $$ = $1; }
     | enum_specifier SEMICOLON { $$ = $1; }
     | TYPEDEF INT IDENTIFIER SEMICOLON {
         $$ = create_ast_node(AST_TYPEDEF, yylineno);
@@ -135,6 +137,7 @@ declaration_specifiers:
     | DOUBLE { $$ = create_string_node("double", yylineno); $$->type = AST_TYPE_SPECIFIER; }
     | UNSIGNED { $$ = create_string_node("unsigned", yylineno); $$->type = AST_TYPE_SPECIFIER; }
     | struct_specifier { $$ = $1; }
+    | union_specifier { $$ = $1; }
     | STATIC INT { $$ = create_string_node("int", yylineno); $$->type = AST_TYPE_SPECIFIER; $$->lineno = -1; /* Mark as static with negative lineno */ }
     | STATIC FLOAT { $$ = create_string_node("float", yylineno); $$->type = AST_TYPE_SPECIFIER; $$->lineno = -1; }
     | STATIC CHAR { $$ = create_string_node("char", yylineno); $$->type = AST_TYPE_SPECIFIER; $$->lineno = -1; }
@@ -524,6 +527,16 @@ multiplicative_expression:
 
 unary_expression:
     postfix_expression { $$ = $1; }
+    | SIZEOF LPAREN declaration_specifiers RPAREN {
+        // sizeof(int), sizeof(float), etc.
+        $$ = create_ast_node(AST_SIZEOF_EXPR, yylineno);
+        add_child($$, $3);
+    }
+    | SIZEOF LPAREN unary_expression RPAREN {
+        // sizeof(expr)
+        $$ = create_ast_node(AST_SIZEOF_EXPR, yylineno);
+        add_child($$, $3);
+    }
     | INC_OP unary_expression {
         $$ = create_unary_expr_node(OP_PREINC, $2, yylineno);
     }
@@ -678,6 +691,26 @@ struct_declaration:
         $$ = create_ast_node(AST_DECLARATION, yylineno);
         add_child($$, $1);
         add_child($$, $2);
+    }
+    ;
+
+union_specifier:
+    UNION IDENTIFIER LBRACE struct_declaration_list RBRACE {
+        $$ = create_ast_node(AST_UNION_DEF, yylineno);
+        ASTNode *name = create_identifier_node($2, yylineno);
+        add_child($$, name);
+        add_child($$, $4);
+        free($2);
+    }
+    | UNION LBRACE struct_declaration_list RBRACE {
+        $$ = create_ast_node(AST_UNION_DEF, yylineno);
+        add_child($$, $3);
+    }
+    | UNION IDENTIFIER {
+        $$ = create_ast_node(AST_UNION_DEF, yylineno);
+        ASTNode *name = create_identifier_node($2, yylineno);
+        add_child($$, name);
+        free($2);
     }
     ;
 

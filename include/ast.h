@@ -41,7 +41,9 @@ typedef enum
     AST_TERNARY_EXPR,    // 三元运算符 a ? b : c
     AST_TYPEDEF,         // typedef声明
     AST_ENUM_DEF,        // 枚举定义
-    AST_ENUM_CONST       // 枚举常量
+    AST_ENUM_CONST,      // 枚举常量
+    AST_UNION_DEF,       // union定义
+    AST_SIZEOF_EXPR      // sizeof表达式
 } ASTNodeType;
 
 // 运算符类型
@@ -83,13 +85,13 @@ typedef enum
     OP_LEFT_ASSIGN,  // <<=
     OP_RIGHT_ASSIGN, // >>=
     // 位运算符
-    OP_BIT_AND,    // &
-    OP_BIT_OR,     // |
-    OP_BIT_XOR,    // ^
-    OP_BIT_NOT,    // ~
-    OP_LEFT_SHIFT, // <<
+    OP_BIT_AND,     // &
+    OP_BIT_OR,      // |
+    OP_BIT_XOR,     // ^
+    OP_BIT_NOT,     // ~
+    OP_LEFT_SHIFT,  // <<
     OP_RIGHT_SHIFT, // >>
-    OP_COMMA       // ,
+    OP_COMMA        // ,
 } OperatorType;
 
 // 前向声明

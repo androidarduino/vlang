@@ -215,6 +215,37 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
         emit(gen, "    movq $%d, %%rax  # Load float as int", (int)node->value.float_val);
         break;
 
+    case AST_SIZEOF_EXPR:
+    {
+        // sizeof(type) 或 sizeof(expr)
+        int size = 8; // 默认8字节
+
+        if (node->num_children > 0)
+        {
+            ASTNode *child = node->children[0];
+
+            if (child->type == AST_TYPE_SPECIFIER)
+            {
+                // sizeof(type)
+                const char *type_str = child->value.string_val;
+                if (type_str)
+                {
+                    if (strcmp(type_str, "int") == 0 || strcmp(type_str, "float") == 0)
+                        size = 8;
+                    else if (strcmp(type_str, "char") == 0)
+                        size = 1;
+                    else if (strcmp(type_str, "short") == 0)
+                        size = 2;
+                    else if (strcmp(type_str, "long") == 0 || strcmp(type_str, "double") == 0)
+                        size = 8;
+                }
+            }
+        }
+
+        emit(gen, "    movq $%d, %%rax  # sizeof result", size);
+        break;
+    }
+
     case AST_STRING_LITERAL:
     {
         // 添加字符串常量并获取标签
