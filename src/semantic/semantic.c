@@ -536,69 +536,74 @@ void analyze_declaration(SemanticAnalyzer *analyzer, ASTNode *node)
         id_node_temp = declarator->children[0];
     }
 
-    // 简化的declarator处理逻辑
+    // 处理多维数组：遍历嵌套的DECLARATOR节点
+    // 收集所有数组维度，直到找到变量名
+    int *array_dimensions = NULL;
+    int num_dimensions = 0;
+    int dim_capacity = 4;
+    array_dimensions = (int *)malloc(dim_capacity * sizeof(int));
+
     ASTNode *current = id_node_temp;
 
-    // 如果是标识符，直接获取名字
-    if (current->type == AST_IDENTIFIER)
+    // 遍历DECLARATOR链，收集数组维度
+    while (current && current->type == AST_DECLARATOR)
     {
-        var_name = current->value.string_val;
-        // AST_IDENTIFIER 不使用 int_val，pointer_level 保持为 0
-    }
-    // 如果是AST_DECLARATOR，可能是数组或指针
-    else if (current->type == AST_DECLARATOR)
-    {
-        // 检查是否有子节点（数组声明）
         if (current->num_children > 0)
         {
-            // value.int_val可能存储数组大小（>= 0）或其他信息
+            // 如果int_val > 0，这是一个数组维度
             if (current->value.int_val > 0)
             {
-                // 这是数组声明
-                array_size = current->value.int_val;
+                // 确保有足够空间
+                if (num_dimensions >= dim_capacity)
+                {
+                    dim_capacity *= 2;
+                    array_dimensions = (int *)realloc(array_dimensions, dim_capacity * sizeof(int));
+                }
+                array_dimensions[num_dimensions++] = current->value.int_val;
             }
 
-            // 获取子节点（可能是IDENTIFIER或另一个DECLARATOR）
-            ASTNode *child = current->children[0];
-            if (child)
-            {
-                if (child->type == AST_IDENTIFIER)
-                {
-                    var_name = child->value.string_val;
-                }
-                else if (child->type == AST_DECLARATOR)
-                {
-                    // 子节点也是DECLARATOR（来自parser规则中的类型覆盖）
-                    var_name = child->value.string_val;
-                }
-            }
+            // 移动到子节点
+            current = current->children[0];
         }
         else
         {
-            // 没有子节点，可能直接使用string_val（旧代码兼容性）
+            // 没有子节点，检查是否有string_val（变量名）
             if (current->value.string_val)
             {
                 var_name = current->value.string_val;
             }
-            // 只有在明确是指针时才使用int_val
-            if (current->value.int_val > 0)
-            {
-                pointer_level = current->value.int_val;
-            }
+            break;
         }
     }
 
-    // 创建数组类型
-    if (array_size >= 0)
+    // 如果遍历到了IDENTIFIER
+    if (current && current->type == AST_IDENTIFIER)
     {
-        var_type = create_array_type(var_type, array_size);
+        var_name = current->value.string_val;
     }
 
-    // 创建指针类型
-    for (int i = 0; i < pointer_level; i++)
+    // 对于多维数组，创建嵌套的数组类型
+    if (num_dimensions > 0)
     {
-        var_type = create_pointer_type(var_type);
+        // 从最内层开始构建类型（反向遍历维度）
+        for (int i = num_dimensions - 1; i >= 0; i--)
+        {
+            var_type = create_array_type(var_type, array_dimensions[i]);
+        }
+
+        // 存储多维数组信息到类型中
+        var_type->array_dimensions = num_dimensions;
+        var_type->array_sizes = array_dimensions; // 转移所有权
+        array_dimensions = NULL;                  // 防止下面free
     }
+
+    if (array_dimensions)
+    {
+        free(array_dimensions);
+    }
+
+    // 注意：多维数组的类型已经在上面创建了
+    // 这里不需要再创建 array_size（它是旧的单维数组逻辑）
 
     // 如果还没有变量名，尝试从原始 declarator 获取
     if (!var_name)
