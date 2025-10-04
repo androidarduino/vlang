@@ -24,21 +24,25 @@ ASTNode *ast_root = NULL;
 %token <float_val> FLOATING_CONSTANT
 %token <string_val> CHARACTER_CONSTANT STRING_LITERAL
 
-%token INT FLOAT CHAR VOID SHORT LONG DOUBLE UNSIGNED STRUCT RETURN IF ELSE WHILE FOR BREAK CONTINUE
+%token INT FLOAT CHAR VOID SHORT LONG DOUBLE UNSIGNED STRUCT RETURN IF ELSE WHILE FOR SWITCH CASE DEFAULT BREAK CONTINUE
 %token SEMICOLON LBRACE RBRACE COMMA LPAREN RPAREN LBRACKET RBRACKET
-%token ASSIGN PLUS MINUS STAR SLASH PERCENT AMPERSAND
+%token ASSIGN ADD_ASSIGN SUB_ASSIGN MUL_ASSIGN DIV_ASSIGN MOD_ASSIGN
+%token AND_ASSIGN OR_ASSIGN XOR_ASSIGN LEFT_ASSIGN RIGHT_ASSIGN
+%token PLUS MINUS STAR SLASH PERCENT AMPERSAND
 %token LT GT LE_OP GE_OP EQ_OP NE_OP
-%token AND_OP OR_OP NOT_OP DOT ARROW
+%token LEFT_SHIFT RIGHT_SHIFT
+%token AND_OP OR_OP NOT_OP PIPE XOR TILDE DOT ARROW
 %token INC_OP DEC_OP QUESTION COLON
 
 %type <node> program external_declaration function_definition declaration_specifiers
 %type <node> declarator compound_statement statement_list statement
 %type <node> declaration init_declarator parameter_list parameter_declaration
 %type <node> expression_statement selection_statement iteration_statement
-%type <node> jump_statement expression assignment_expression conditional_expression
+%type <node> jump_statement labeled_statement expression assignment_expression conditional_expression
 %type <node> logical_or_expression logical_and_expression
+%type <node> bitwise_or_expression bitwise_xor_expression bitwise_and_expression
 %type <node> equality_expression relational_expression
-%type <node> additive_expression multiplicative_expression
+%type <node> shift_expression additive_expression multiplicative_expression
 %type <node> unary_expression postfix_expression primary_expression
 %type <node> argument_expression_list
 %type <node> initializer initializer_list
@@ -209,6 +213,19 @@ statement:
     | selection_statement { $$ = $1; }
     | iteration_statement { $$ = $1; }
     | jump_statement { $$ = $1; }
+    | labeled_statement { $$ = $1; }
+    ;
+
+labeled_statement:
+    CASE conditional_expression COLON statement {
+        $$ = create_ast_node(AST_CASE_STMT, yylineno);
+        add_child($$, $2);
+        add_child($$, $4);
+    }
+    | DEFAULT COLON statement {
+        $$ = create_ast_node(AST_DEFAULT_STMT, yylineno);
+        add_child($$, $3);
+    }
     ;
 
 expression_statement:
@@ -232,6 +249,11 @@ selection_statement:
         add_child($$, $3);
         add_child($$, $5);
         add_child($$, $7);
+    }
+    | SWITCH LPAREN expression RPAREN statement {
+        $$ = create_ast_node(AST_SWITCH_STMT, yylineno);
+        add_child($$, $3);
+        add_child($$, $5);
     }
     ;
 
@@ -295,6 +317,46 @@ assignment_expression:
         $$ = create_binary_expr_node(OP_ASSIGN, $1, $3, yylineno);
         $$->type = AST_ASSIGN_EXPR;
     }
+    | unary_expression ADD_ASSIGN assignment_expression {
+        $$ = create_binary_expr_node(OP_ADD_ASSIGN, $1, $3, yylineno);
+        $$->type = AST_ASSIGN_EXPR;
+    }
+    | unary_expression SUB_ASSIGN assignment_expression {
+        $$ = create_binary_expr_node(OP_SUB_ASSIGN, $1, $3, yylineno);
+        $$->type = AST_ASSIGN_EXPR;
+    }
+    | unary_expression MUL_ASSIGN assignment_expression {
+        $$ = create_binary_expr_node(OP_MUL_ASSIGN, $1, $3, yylineno);
+        $$->type = AST_ASSIGN_EXPR;
+    }
+    | unary_expression DIV_ASSIGN assignment_expression {
+        $$ = create_binary_expr_node(OP_DIV_ASSIGN, $1, $3, yylineno);
+        $$->type = AST_ASSIGN_EXPR;
+    }
+    | unary_expression MOD_ASSIGN assignment_expression {
+        $$ = create_binary_expr_node(OP_MOD_ASSIGN, $1, $3, yylineno);
+        $$->type = AST_ASSIGN_EXPR;
+    }
+    | unary_expression AND_ASSIGN assignment_expression {
+        $$ = create_binary_expr_node(OP_AND_ASSIGN, $1, $3, yylineno);
+        $$->type = AST_ASSIGN_EXPR;
+    }
+    | unary_expression OR_ASSIGN assignment_expression {
+        $$ = create_binary_expr_node(OP_OR_ASSIGN, $1, $3, yylineno);
+        $$->type = AST_ASSIGN_EXPR;
+    }
+    | unary_expression XOR_ASSIGN assignment_expression {
+        $$ = create_binary_expr_node(OP_XOR_ASSIGN, $1, $3, yylineno);
+        $$->type = AST_ASSIGN_EXPR;
+    }
+    | unary_expression LEFT_ASSIGN assignment_expression {
+        $$ = create_binary_expr_node(OP_LEFT_ASSIGN, $1, $3, yylineno);
+        $$->type = AST_ASSIGN_EXPR;
+    }
+    | unary_expression RIGHT_ASSIGN assignment_expression {
+        $$ = create_binary_expr_node(OP_RIGHT_ASSIGN, $1, $3, yylineno);
+        $$->type = AST_ASSIGN_EXPR;
+    }
     ;
 
 conditional_expression:
@@ -315,9 +377,30 @@ logical_or_expression:
     ;
 
 logical_and_expression:
-    equality_expression { $$ = $1; }
-    | logical_and_expression AND_OP equality_expression {
+    bitwise_or_expression { $$ = $1; }
+    | logical_and_expression AND_OP bitwise_or_expression {
         $$ = create_binary_expr_node(OP_AND, $1, $3, yylineno);
+    }
+    ;
+
+bitwise_or_expression:
+    bitwise_xor_expression { $$ = $1; }
+    | bitwise_or_expression PIPE bitwise_xor_expression {
+        $$ = create_binary_expr_node(OP_BIT_OR, $1, $3, yylineno);
+    }
+    ;
+
+bitwise_xor_expression:
+    bitwise_and_expression { $$ = $1; }
+    | bitwise_xor_expression XOR bitwise_and_expression {
+        $$ = create_binary_expr_node(OP_BIT_XOR, $1, $3, yylineno);
+    }
+    ;
+
+bitwise_and_expression:
+    equality_expression { $$ = $1; }
+    | bitwise_and_expression AMPERSAND equality_expression {
+        $$ = create_binary_expr_node(OP_BIT_AND, $1, $3, yylineno);
     }
     ;
 
@@ -332,18 +415,28 @@ equality_expression:
     ;
 
 relational_expression:
-    additive_expression { $$ = $1; }
-    | relational_expression LT additive_expression {
+    shift_expression { $$ = $1; }
+    | relational_expression LT shift_expression {
         $$ = create_binary_expr_node(OP_LT, $1, $3, yylineno);
     }
-    | relational_expression GT additive_expression {
+    | relational_expression GT shift_expression {
         $$ = create_binary_expr_node(OP_GT, $1, $3, yylineno);
     }
-    | relational_expression LE_OP additive_expression {
+    | relational_expression LE_OP shift_expression {
         $$ = create_binary_expr_node(OP_LE, $1, $3, yylineno);
     }
-    | relational_expression GE_OP additive_expression {
+    | relational_expression GE_OP shift_expression {
         $$ = create_binary_expr_node(OP_GE, $1, $3, yylineno);
+    }
+    ;
+
+shift_expression:
+    additive_expression { $$ = $1; }
+    | shift_expression LEFT_SHIFT additive_expression {
+        $$ = create_binary_expr_node(OP_LEFT_SHIFT, $1, $3, yylineno);
+    }
+    | shift_expression RIGHT_SHIFT additive_expression {
+        $$ = create_binary_expr_node(OP_RIGHT_SHIFT, $1, $3, yylineno);
     }
     ;
 
@@ -381,11 +474,17 @@ unary_expression:
     | NOT_OP unary_expression {
         $$ = create_unary_expr_node(OP_NOT, $2, yylineno);
     }
+    | MINUS unary_expression {
+        $$ = create_unary_expr_node(OP_NEG, $2, yylineno);
+    }
     | AMPERSAND unary_expression {
         $$ = create_unary_expr_node(OP_ADDR, $2, yylineno);
     }
     | STAR unary_expression {
         $$ = create_unary_expr_node(OP_DEREF, $2, yylineno);
+    }
+    | TILDE unary_expression {
+        $$ = create_unary_expr_node(OP_BIT_NOT, $2, yylineno);
     }
     ;
 

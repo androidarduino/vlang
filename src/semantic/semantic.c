@@ -233,6 +233,26 @@ TypeInfo *check_binary_operation(SemanticAnalyzer *analyzer, OperatorType op,
         return create_type(TYPE_INT);
     }
 
+    // 位运算符
+    if (op == OP_BIT_AND || op == OP_BIT_OR || op == OP_BIT_XOR ||
+        op == OP_LEFT_SHIFT || op == OP_RIGHT_SHIFT)
+    {
+        // 位运算要求两个操作数都是整数类型
+        if (left->base_type != TYPE_INT || left->pointer_level > 0)
+        {
+            semantic_error(analyzer, lineno,
+                           "Left operand of bitwise operation must be integer");
+            return create_type(TYPE_UNKNOWN);
+        }
+        if (right->base_type != TYPE_INT || right->pointer_level > 0)
+        {
+            semantic_error(analyzer, lineno,
+                           "Right operand of bitwise operation must be integer");
+            return create_type(TYPE_UNKNOWN);
+        }
+        return create_type(TYPE_INT);
+    }
+
     semantic_error(analyzer, lineno, "Unknown binary operator");
     return create_type(TYPE_UNKNOWN);
 }
@@ -356,9 +376,21 @@ TypeInfo *analyze_expression(SemanticAnalyzer *analyzer, ASTNode *node)
             semantic_error(analyzer, node->lineno, "Assignment missing operands");
             return create_type(TYPE_UNKNOWN);
         }
+
+        TypeInfo *lhs_type = analyze_expression(analyzer, node->children[0]);
         TypeInfo *rhs_type = analyze_expression(analyzer, node->children[1]);
+
+        // 检查是否为复合赋值运算符
+        if (node->value.op_type != OP_ASSIGN)
+        {
+            // 复合赋值运算符：a += b 等价于 a = a + b
+            // 先检查操作是否合法
+            check_binary_operation(analyzer, node->value.op_type - (OP_ADD_ASSIGN - OP_ADD),
+                                   lhs_type, rhs_type, node->lineno);
+        }
+
         check_assignment(analyzer, node->children[0], rhs_type, node->lineno);
-        return rhs_type;
+        return lhs_type;
     }
 
     case AST_UNARY_EXPR:
@@ -410,6 +442,16 @@ TypeInfo *analyze_expression(SemanticAnalyzer *analyzer, ASTNode *node)
                                  "Increment/decrement on non-integer/pointer type");
             }
             return operand_type;
+        }
+        else if (node->value.op_type == OP_BIT_NOT)
+        {
+            // 按位取反：检查操作数是否为整数类型
+            if (operand_type->base_type != TYPE_INT && operand_type->pointer_level == 0)
+            {
+                semantic_error(analyzer, node->lineno,
+                               "Bitwise NOT requires integer type");
+            }
+            return create_type(TYPE_INT);
         }
 
         return operand_type;
@@ -972,10 +1014,53 @@ void analyze_statement(SemanticAnalyzer *analyzer, ASTNode *node)
         }
         break;
 
+    case AST_SWITCH_STMT:
+    {
+        if (node->num_children >= 1)
+        {
+            TypeInfo *switch_type = analyze_expression(analyzer, node->children[0]);
+            if (switch_type->base_type != TYPE_INT && switch_type->base_type != TYPE_CHAR)
+            {
+                semantic_warning(analyzer, node->lineno,
+                                 "Switch expression should be integer type");
+            }
+
+            analyzer->loop_depth++;
+            if (node->num_children >= 2)
+            {
+                analyze_statement(analyzer, node->children[1]);
+            }
+            analyzer->loop_depth--;
+        }
+        break;
+    }
+
+    case AST_CASE_STMT:
+    {
+        if (node->num_children >= 1)
+        {
+            analyze_expression(analyzer, node->children[0]);
+        }
+        if (node->num_children >= 2)
+        {
+            analyze_statement(analyzer, node->children[1]);
+        }
+        break;
+    }
+
+    case AST_DEFAULT_STMT:
+    {
+        if (node->num_children >= 1)
+        {
+            analyze_statement(analyzer, node->children[0]);
+        }
+        break;
+    }
+
     case AST_BREAK_STMT:
         if (analyzer->loop_depth == 0)
         {
-            semantic_error(analyzer, node->lineno, "break statement outside loop");
+            semantic_error(analyzer, node->lineno, "break statement outside loop or switch");
         }
         break;
 

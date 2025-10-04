@@ -14,6 +14,9 @@ typedef enum
     AST_IF_STMT,
     AST_WHILE_STMT,
     AST_FOR_STMT,
+    AST_SWITCH_STMT,
+    AST_CASE_STMT,
+    AST_DEFAULT_STMT,
     AST_RETURN_STMT,
     AST_BREAK_STMT,
     AST_CONTINUE_STMT,
@@ -63,7 +66,25 @@ typedef enum
     OP_PREINC,  // 前缀递增 ++i
     OP_PREDEC,  // 前缀递减 --i
     OP_POSTINC, // 后缀递增 i++
-    OP_POSTDEC  // 后缀递减 i--
+    OP_POSTDEC, // 后缀递减 i--
+    // 复合赋值运算符
+    OP_ADD_ASSIGN,   // +=
+    OP_SUB_ASSIGN,   // -=
+    OP_MUL_ASSIGN,   // *=
+    OP_DIV_ASSIGN,   // /=
+    OP_MOD_ASSIGN,   // %=
+    OP_AND_ASSIGN,   // &=
+    OP_OR_ASSIGN,    // |=
+    OP_XOR_ASSIGN,   // ^=
+    OP_LEFT_ASSIGN,  // <<=
+    OP_RIGHT_ASSIGN, // >>=
+    // 位运算符
+    OP_BIT_AND,    // &
+    OP_BIT_OR,     // |
+    OP_BIT_XOR,    // ^
+    OP_BIT_NOT,    // ~
+    OP_LEFT_SHIFT, // <<
+    OP_RIGHT_SHIFT // >>
 } OperatorType;
 
 // 前向声明

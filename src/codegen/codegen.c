@@ -372,6 +372,25 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
             emit(gen, "    orb %%bl, %%al     # OR both");
             emit(gen, "    movzbq %%al, %%rax");
             break;
+
+        // 位运算符
+        case OP_BIT_AND:
+            emit(gen, "    andq %%rbx, %%rax  # Bitwise AND");
+            break;
+        case OP_BIT_OR:
+            emit(gen, "    orq %%rbx, %%rax  # Bitwise OR");
+            break;
+        case OP_BIT_XOR:
+            emit(gen, "    xorq %%rbx, %%rax  # Bitwise XOR");
+            break;
+        case OP_LEFT_SHIFT:
+            emit(gen, "    movq %%rbx, %%rcx  # Shift count to rcx");
+            emit(gen, "    shlq %%cl, %%rax  # Left shift");
+            break;
+        case OP_RIGHT_SHIFT:
+            emit(gen, "    movq %%rbx, %%rcx  # Shift count to rcx");
+            emit(gen, "    shrq %%cl, %%rax  # Right shift");
+            break;
         default:
             break;
         }
@@ -384,6 +403,16 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
             break;
 
         ASTNode *lhs = node->children[0];
+
+        // 检查是否为复合赋值运算符
+        int is_compound = (node->value.op_type != OP_ASSIGN);
+
+        // 如果是复合赋值，先加载左侧的值
+        if (is_compound)
+        {
+            gen_expression(gen, lhs); // 加载左侧的当前值到 rax
+            push_reg(gen, "rax");     // 保存到栈
+        }
 
         // 检查左侧是否是数组下标 (arr[i] = value)
         if (lhs->type == AST_ARRAY_SUBSCRIPT)
@@ -494,6 +523,58 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
             // 计算右侧表达式
             gen_expression(gen, node->children[1]);
 
+            // 如果是复合赋值，执行运算
+            if (is_compound)
+            {
+                pop_reg(gen, "rbx"); // 弹出左侧的旧值到 rbx
+
+                // 根据运算符类型执行操作
+                switch (node->value.op_type)
+                {
+                case OP_ADD_ASSIGN:
+                    emit(gen, "    addq %%rax, %%rbx  # +=");
+                    break;
+                case OP_SUB_ASSIGN:
+                    emit(gen, "    subq %%rax, %%rbx  # -=");
+                    break;
+                case OP_MUL_ASSIGN:
+                    emit(gen, "    imulq %%rax, %%rbx  # *=");
+                    break;
+                case OP_DIV_ASSIGN:
+                    emit(gen, "    movq %%rax, %%rcx  # Move divisor to rcx");
+                    emit(gen, "    movq %%rbx, %%rax  # Move dividend to rax");
+                    emit(gen, "    cqto  # Sign extend");
+                    emit(gen, "    idivq %%rcx  # Divide rax by rcx");
+                    emit(gen, "    movq %%rax, %%rbx  # Result to rbx");
+                    break;
+                case OP_MOD_ASSIGN:
+                    emit(gen, "    movq %%rax, %%rcx  # Move divisor to rcx");
+                    emit(gen, "    movq %%rbx, %%rax  # Move dividend to rax");
+                    emit(gen, "    cqto  # Sign extend");
+                    emit(gen, "    idivq %%rcx  # Divide, remainder in rdx");
+                    emit(gen, "    movq %%rdx, %%rbx  # Remainder to rbx");
+                    break;
+                case OP_AND_ASSIGN:
+                    emit(gen, "    andq %%rax, %%rbx  # &=");
+                    break;
+                case OP_OR_ASSIGN:
+                    emit(gen, "    orq %%rax, %%rbx  # |=");
+                    break;
+                case OP_XOR_ASSIGN:
+                    emit(gen, "    xorq %%rax, %%rbx  # ^=");
+                    break;
+                case OP_LEFT_ASSIGN:
+                    emit(gen, "    movq %%rax, %%rcx  # Shift count to rcx");
+                    emit(gen, "    shlq %%cl, %%rbx  # <<=");
+                    break;
+                case OP_RIGHT_ASSIGN:
+                    emit(gen, "    movq %%rax, %%rcx  # Shift count to rcx");
+                    emit(gen, "    shrq %%cl, %%rbx  # >>=");
+                    break;
+                }
+                emit(gen, "    movq %%rbx, %%rax  # Result to rax");
+            }
+
             // 存储到左侧变量
             const char *name = lhs->value.string_val;
             Symbol *symbol = (Symbol *)lhs->semantic_info;
@@ -597,6 +678,7 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
         case OP_DEREF:
         case OP_NOT:
         case OP_NEG:
+        case OP_BIT_NOT:
         default:
             // 对于其他运算符，先计算操作数
             gen_expression(gen, node->children[0]);
@@ -617,6 +699,11 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
             {
                 // 解引用：rax 中是指针（地址），加载该地址处的值
                 emit(gen, "    movq (%%rax), %%rax  # Dereference pointer");
+            }
+            else if (node->value.op_type == OP_BIT_NOT)
+            {
+                // 按位取反
+                emit(gen, "    notq %%rax  # Bitwise NOT");
             }
             break;
         }
@@ -1060,6 +1147,102 @@ void gen_statement(CodeGenerator *gen, ASTNode *node)
             emit(gen, "    movq $0, %%rax  # Return 0");
         }
         emit(gen, "    jmp .L%d  # Return", gen->return_label);
+        break;
+
+    case AST_SWITCH_STMT:
+    {
+        if (node->num_children < 2)
+            break;
+
+        int end_label = new_label(gen);
+
+        // 计算switch表达式
+        gen_expression(gen, node->children[0]);
+        emit(gen, "    pushq %%rax  # Save switch value");
+
+        // 设置循环上下文（switch可以使用break）
+        LoopContext loop_ctx;
+        loop_ctx.end_label = end_label;
+        loop_ctx.parent = gen->loop_context;
+        gen->loop_context = &loop_ctx;
+
+        // 生成case比较和跳转
+        ASTNode *body = node->children[1];
+        int default_label = -1;
+
+        if (body->type == AST_COMPOUND_STMT)
+        {
+            // 第一遍：生成case比较
+            for (int i = 0; i < body->num_children; i++)
+            {
+                if (body->children[i]->type == AST_CASE_STMT)
+                {
+                    int case_label = new_label(gen);
+                    body->children[i]->value.int_val = case_label;
+
+                    if (body->children[i]->num_children >= 1)
+                    {
+                        emit(gen, "    movq (%%rsp), %%rbx  # Load switch value");
+                        gen_expression(gen, body->children[i]->children[0]);
+                        emit(gen, "    cmpq %%rax, %%rbx  # Compare case value");
+                        emit(gen, "    je .L%d  # Jump if match", case_label);
+                    }
+                }
+                else if (body->children[i]->type == AST_DEFAULT_STMT)
+                {
+                    default_label = new_label(gen);
+                    body->children[i]->value.int_val = default_label;
+                }
+            }
+
+            // 没有匹配，跳到default或结束
+            if (default_label >= 0)
+            {
+                emit(gen, "    jmp .L%d  # Jump to default", default_label);
+            }
+            else
+            {
+                emit(gen, "    addq $8, %%rsp  # Pop switch value");
+                emit(gen, "    jmp .L%d  # No match, exit switch", end_label);
+            }
+
+            // 第二遍：生成case代码
+            for (int i = 0; i < body->num_children; i++)
+            {
+                if (body->children[i]->type == AST_CASE_STMT)
+                {
+                    emit(gen, ".L%d:  # case", body->children[i]->value.int_val);
+                    if (body->children[i]->num_children >= 2)
+                    {
+                        gen_statement(gen, body->children[i]->children[1]);
+                    }
+                }
+                else if (body->children[i]->type == AST_DEFAULT_STMT)
+                {
+                    emit(gen, ".L%d:  # default", body->children[i]->value.int_val);
+                    if (body->children[i]->num_children >= 1)
+                    {
+                        gen_statement(gen, body->children[i]->children[0]);
+                    }
+                }
+                else
+                {
+                    gen_statement(gen, body->children[i]);
+                }
+            }
+        }
+
+        emit(gen, "    addq $8, %%rsp  # Pop switch value");
+        emit(gen, ".L%d:  # Switch end", end_label);
+
+        // 恢复循环上下文
+        gen->loop_context = loop_ctx.parent;
+        break;
+    }
+
+    case AST_CASE_STMT:
+    case AST_DEFAULT_STMT:
+        // 这些在switch中处理
         break;
 
     case AST_BREAK_STMT:
