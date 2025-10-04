@@ -23,6 +23,7 @@ Symbol *symbol_create(const char *name, TypeInfo *type, SymbolKind kind)
     symbol->is_defined = 0;
     symbol->is_static = 0;
     symbol->is_global = 0;
+    symbol->is_extern = 0;
     symbol->label = NULL;
     return symbol;
 }

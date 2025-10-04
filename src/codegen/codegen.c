@@ -548,19 +548,33 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
             if (struct_node->type == AST_IDENTIFIER)
             {
                 Symbol *symbol = (Symbol *)struct_node->semantic_info;
-                if (symbol)
+                if (symbol && symbol->type)
                 {
-                    // 计算成员偏移（简化：x=0, y=8）
                     const char *member_name = member_node->value.string_val;
                     int member_offset = 0;
+                    int found = 0;
 
-                    if (strcmp(member_name, "y") == 0)
+                    // 从TypeInfo的members中查找成员偏移
+                    if (symbol->type->members && symbol->type->num_members > 0)
                     {
-                        member_offset = 8;
+                        for (int i = 0; i < symbol->type->num_members; i++)
+                        {
+                            if (strcmp(symbol->type->members[i].name, member_name) == 0)
+                            {
+                                member_offset = symbol->type->members[i].offset;
+                                found = 1;
+                                break;
+                            }
+                        }
                     }
-                    else if (strcmp(member_name, "x") == 0)
+
+                    // 如果没有找到members信息，使用默认偏移（向后兼容）
+                    if (!found)
                     {
-                        member_offset = 0;
+                        if (strcmp(member_name, "y") == 0)
+                            member_offset = 8;
+                        else if (strcmp(member_name, "x") == 0)
+                            member_offset = 0;
                     }
 
                     // 结构体变量基地址 + 成员偏移
@@ -698,11 +712,14 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
         case OP_PREINC:
         case OP_PREDEC:
         {
-            // 前缀递增/递减：++i, --i
+            // 前缀递增/递减：++i, --i, ++arr[i], ++p.x
             // 先递增/递减，然后返回新值
-            if (node->children[0]->type == AST_IDENTIFIER)
+            ASTNode *operand = node->children[0];
+
+            if (operand->type == AST_IDENTIFIER)
             {
-                Symbol *symbol = (Symbol *)node->children[0]->semantic_info;
+                // 简单变量：++i
+                Symbol *symbol = (Symbol *)operand->semantic_info;
                 if (symbol)
                 {
                     int offset = -(symbol->offset + 8);
@@ -714,16 +731,79 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
                     emit(gen, "    movq %%rax, %d(%%rbp)  # Store back", offset);
                 }
             }
+            else if (operand->type == AST_ARRAY_SUBSCRIPT)
+            {
+                // 数组元素：++arr[i]
+                // 需要特殊处理：获取地址而不是值
+                if (operand->num_children >= 2)
+                {
+                    ASTNode *array_node = operand->children[0];
+                    ASTNode *index_node = operand->children[1];
+
+                    // 计算索引
+                    gen_expression(gen, index_node);
+                    push_reg(gen, "rax");
+
+                    // 获取数组基地址
+                    if (array_node->type == AST_IDENTIFIER)
+                    {
+                        Symbol *symbol = (Symbol *)array_node->semantic_info;
+                        if (symbol)
+                        {
+                            int base_offset = -(symbol->offset + 8);
+                            emit(gen, "    leaq %d(%%rbp), %%rax  # Array base", base_offset);
+                        }
+                    }
+
+                    // 计算元素地址
+                    pop_reg(gen, "rcx");
+                    emit(gen, "    imulq $8, %%rcx");
+                    emit(gen, "    subq %%rcx, %%rax  # Element address");
+
+                    // 加载、递增、存回
+                    emit(gen, "    movq (%%rax), %%rbx  # Load value");
+                    push_reg(gen, "rax");
+                    if (node->value.op_type == OP_PREINC)
+                        emit(gen, "    addq $1, %%rbx");
+                    else
+                        emit(gen, "    subq $1, %%rbx");
+                    pop_reg(gen, "rax");
+                    emit(gen, "    movq %%rbx, (%%rax)  # Store back");
+                    emit(gen, "    movq %%rbx, %%rax  # Result");
+                }
+            }
+            else if (operand->type == AST_MEMBER_ACCESS ||
+                     (operand->type == AST_UNARY_EXPR && operand->value.op_type == OP_DEREF))
+            {
+                // 结构体成员或解引用：++p.x, ++(*ptr)
+                // gen_expression对于MEMBER_ACCESS会返回地址+值
+                // 我们需要重新获取地址
+                gen_expression(gen, operand);
+                emit(gen, "    movq (%%rax), %%rbx  # Load current value");
+                push_reg(gen, "rax");
+
+                if (node->value.op_type == OP_PREINC)
+                    emit(gen, "    addq $1, %%rbx  # ++");
+                else
+                    emit(gen, "    subq $1, %%rbx  # --");
+
+                pop_reg(gen, "rax");
+                emit(gen, "    movq %%rbx, (%%rax)  # Store back");
+                emit(gen, "    movq %%rbx, %%rax  # Result is new value");
+            }
             break;
         }
         case OP_POSTINC:
         case OP_POSTDEC:
         {
-            // 后缀递增/递减：i++, i--
+            // 后缀递增/递减：i++, i--, arr[i]++, p.x++
             // 先返回旧值，然后递增/递减
-            if (node->children[0]->type == AST_IDENTIFIER)
+            ASTNode *operand = node->children[0];
+
+            if (operand->type == AST_IDENTIFIER)
             {
-                Symbol *symbol = (Symbol *)node->children[0]->semantic_info;
+                // 简单变量：i++
+                Symbol *symbol = (Symbol *)operand->semantic_info;
                 if (symbol)
                 {
                     int offset = -(symbol->offset + 8);
@@ -736,6 +816,75 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
                     emit(gen, "    movq %%rbx, %d(%%rbp)  # Store new value", offset);
                     // rax still holds old value
                 }
+            }
+            else if (operand->type == AST_ARRAY_SUBSCRIPT)
+            {
+                // 数组元素：arr[i]++
+                if (operand->num_children >= 2)
+                {
+                    ASTNode *array_node = operand->children[0];
+                    ASTNode *index_node = operand->children[1];
+
+                    // 计算索引
+                    gen_expression(gen, index_node);
+                    push_reg(gen, "rax");
+
+                    // 获取数组基地址
+                    if (array_node->type == AST_IDENTIFIER)
+                    {
+                        Symbol *symbol = (Symbol *)array_node->semantic_info;
+                        if (symbol)
+                        {
+                            int base_offset = -(symbol->offset + 8);
+                            emit(gen, "    leaq %d(%%rbp), %%rax  # Array base", base_offset);
+                        }
+                    }
+
+                    // 计算元素地址
+                    pop_reg(gen, "rcx");
+                    emit(gen, "    imulq $8, %%rcx");
+                    emit(gen, "    subq %%rcx, %%rax  # Element address");
+
+                    // 加载旧值
+                    emit(gen, "    movq (%%rax), %%rbx  # Load old value");
+                    push_reg(gen, "rax"); // 保存地址
+                    emit(gen, "    movq %%rbx, %%rax  # Old value to rax");
+                    push_reg(gen, "rax"); // 保存旧值
+
+                    // 递增递减
+                    if (node->value.op_type == OP_POSTINC)
+                        emit(gen, "    addq $1, %%rbx");
+                    else
+                        emit(gen, "    subq $1, %%rbx");
+
+                    // 存回新值
+                    pop_reg(gen, "rax"); // 恢复旧值（给返回用）
+                    pop_reg(gen, "rcx"); // 恢复地址
+                    emit(gen, "    movq %%rbx, (%%rcx)  # Store new value");
+                    // rax中已经是旧值
+                }
+            }
+            else if (operand->type == AST_MEMBER_ACCESS ||
+                     (operand->type == AST_UNARY_EXPR && operand->value.op_type == OP_DEREF))
+            {
+                // 结构体成员或解引用：p.x++, (*ptr)++
+                gen_expression(gen, operand);
+                push_reg(gen, "rax");
+                emit(gen, "    movq (%%rax), %%rax  # Load current value");
+                push_reg(gen, "rax");
+
+                if (node->value.op_type == OP_POSTINC)
+                    emit(gen, "    addq $1, %%rax  # ++");
+                else
+                    emit(gen, "    subq $1, %%rax  # --");
+
+                emit(gen, "    movq %%rax, %%rbx  # New value to rbx");
+                pop_reg(gen, "rax"); // 恢复旧值
+                push_reg(gen, "rax");
+                pop_reg(gen, "rcx");
+                pop_reg(gen, "rdx");
+                emit(gen, "    movq %%rbx, (%%rdx)  # Store new value");
+                emit(gen, "    movq %%rcx, %%rax  # Result is old value");
             }
             break;
         }
@@ -858,8 +1007,47 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
         // 恢复当前维度的索引
         pop_reg(gen, "rcx");
 
-        // 计算偏移：index * element_size（8字节）
-        emit(gen, "    imulq $8, %%rcx  # Calculate offset (index * 8)");
+        // 计算元素大小：根据类型确定
+        int element_size = 8; // 默认8字节
+        if (node->semantic_info)
+        {
+            TypeInfo *elem_type = (TypeInfo *)node->semantic_info;
+            // 对于多维数组，如果还有维度，大小是剩余维度的总大小
+            if (elem_type->array_dimensions > 0 && elem_type->array_sizes)
+            {
+                element_size = 8; // 简化：内层元素固定8字节
+                // 如果需要精确计算：element_size = elem_type->array_sizes[0] * ... * 8
+            }
+            else
+            {
+                // 基本类型大小
+                switch (elem_type->base_type)
+                {
+                case TYPE_CHAR:
+                    element_size = 1;
+                    break;
+                case TYPE_SHORT:
+                    element_size = 2;
+                    break;
+                case TYPE_INT:
+                case TYPE_FLOAT:
+                case TYPE_LONG:
+                case TYPE_DOUBLE:
+                case TYPE_POINTER:
+                    element_size = 8;
+                    break;
+                default:
+                    element_size = 8;
+                }
+            }
+        }
+
+        // 计算偏移：index * element_size
+        if (element_size != 1)
+        {
+            emit(gen, "    imulq $%d, %%rcx  # Calculate offset (index * %d)",
+                 element_size, element_size);
+        }
 
         // 计算元素地址: base - offset（因为栈向下增长）
         emit(gen, "    subq %%rcx, %%rax  # Subtract offset (stack grows down)");
@@ -931,28 +1119,40 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
         ASTNode *struct_node = node->children[0];
         ASTNode *member_node = node->children[1];
 
-        // 简化实现：假设结构体变量是标识符，成员按顺序排列
         if (struct_node->type == AST_IDENTIFIER)
         {
             Symbol *symbol = (Symbol *)struct_node->semantic_info;
-            if (symbol)
+            if (symbol && symbol->type)
             {
-                // 计算成员偏移
-                // 简化：假设x在offset=0，y在offset=8
                 const char *member_name = member_node->value.string_val;
                 int member_offset = 0;
+                int found = 0;
 
-                if (strcmp(member_name, "y") == 0)
+                // 从TypeInfo的members中查找成员偏移
+                if (symbol->type->members && symbol->type->num_members > 0)
                 {
-                    member_offset = 8;
+                    for (int i = 0; i < symbol->type->num_members; i++)
+                    {
+                        if (strcmp(symbol->type->members[i].name, member_name) == 0)
+                        {
+                            member_offset = symbol->type->members[i].offset;
+                            found = 1;
+                            break;
+                        }
+                    }
                 }
-                else if (strcmp(member_name, "x") == 0)
+
+                // 如果没有找到members信息，使用默认偏移（向后兼容）
+                if (!found)
                 {
-                    member_offset = 0;
+                    if (strcmp(member_name, "y") == 0)
+                        member_offset = 8;
+                    else if (strcmp(member_name, "x") == 0)
+                        member_offset = 0;
                 }
 
                 // 结构体变量的基地址 + 成员偏移
-                int base_offset = -(symbol->offset + 8); // 结构体变量的栈位置
+                int base_offset = -(symbol->offset + 8);
                 int final_offset = base_offset - member_offset;
 
                 emit(gen, "    leaq %d(%%rbp), %%rax  # Load address of %s.%s",

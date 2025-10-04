@@ -24,7 +24,7 @@ ASTNode *ast_root = NULL;
 %token <float_val> FLOATING_CONSTANT
 %token <string_val> CHARACTER_CONSTANT STRING_LITERAL
 
-%token INT FLOAT CHAR VOID SHORT LONG DOUBLE UNSIGNED STRUCT UNION STATIC TYPEDEF ENUM SIZEOF RETURN IF ELSE WHILE DO FOR SWITCH CASE DEFAULT BREAK CONTINUE
+%token INT FLOAT CHAR VOID SHORT LONG DOUBLE UNSIGNED STRUCT UNION STATIC EXTERN TYPEDEF ENUM SIZEOF RETURN IF ELSE WHILE DO FOR SWITCH CASE DEFAULT BREAK CONTINUE
 %token SEMICOLON LBRACE RBRACE COMMA LPAREN RPAREN LBRACKET RBRACKET
 %token ASSIGN ADD_ASSIGN SUB_ASSIGN MUL_ASSIGN DIV_ASSIGN MOD_ASSIGN
 %token AND_ASSIGN OR_ASSIGN XOR_ASSIGN LEFT_ASSIGN RIGHT_ASSIGN
@@ -32,7 +32,7 @@ ASTNode *ast_root = NULL;
 %token LT GT LE_OP GE_OP EQ_OP NE_OP
 %token LEFT_SHIFT RIGHT_SHIFT
 %token AND_OP OR_OP NOT_OP PIPE XOR TILDE DOT ARROW
-%token INC_OP DEC_OP QUESTION COLON
+%token INC_OP DEC_OP QUESTION COLON ELLIPSIS
 
 %type <node> program external_declaration function_definition declaration_specifiers
 %type <node> declarator compound_statement statement_list statement
@@ -141,6 +141,10 @@ declaration_specifiers:
     | STATIC INT { $$ = create_string_node("int", yylineno); $$->type = AST_TYPE_SPECIFIER; $$->lineno = -1; /* Mark as static with negative lineno */ }
     | STATIC FLOAT { $$ = create_string_node("float", yylineno); $$->type = AST_TYPE_SPECIFIER; $$->lineno = -1; }
     | STATIC CHAR { $$ = create_string_node("char", yylineno); $$->type = AST_TYPE_SPECIFIER; $$->lineno = -1; }
+    | EXTERN INT { $$ = create_string_node("int", yylineno); $$->type = AST_TYPE_SPECIFIER; $$->lineno = -2; /* Mark as extern with lineno=-2 */ }
+    | EXTERN FLOAT { $$ = create_string_node("float", yylineno); $$->type = AST_TYPE_SPECIFIER; $$->lineno = -2; }
+    | EXTERN CHAR { $$ = create_string_node("char", yylineno); $$->type = AST_TYPE_SPECIFIER; $$->lineno = -2; }
+    | EXTERN VOID { $$ = create_string_node("void", yylineno); $$->type = AST_TYPE_SPECIFIER; $$->lineno = -2; }
     ;
 
 declarator:
@@ -185,6 +189,13 @@ parameter_list:
     | parameter_list COMMA parameter_declaration {
         $$ = $1;
         add_child($$, $3);
+    }
+    | parameter_list COMMA ELLIPSIS {
+        $$ = $1;
+        // 添加一个特殊节点表示可变参数
+        ASTNode *varargs = create_ast_node(AST_PARAM_LIST, yylineno);
+        varargs->value.string_val = strdup("...");
+        add_child($$, varargs);
     }
     ;
 

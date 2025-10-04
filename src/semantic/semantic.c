@@ -722,6 +722,13 @@ void analyze_declaration(SemanticAnalyzer *analyzer, ASTNode *node)
     // 获取基本类型
     TypeInfo *base_type = get_type_from_specifier(node->children[0]);
 
+    // 检查是否是extern声明
+    int is_extern = 0;
+    if (node->children[0]->lineno == -2)
+    {
+        is_extern = 1;
+    }
+
     // 获取声明符（可能包含初始化）
     ASTNode *declarator = node->children[1];
 
@@ -856,6 +863,7 @@ void analyze_declaration(SemanticAnalyzer *analyzer, ASTNode *node)
         // 创建并插入符号
         Symbol *symbol = symbol_create(var_name, var_type, SYMBOL_VARIABLE);
         symbol->declaration = node;
+        symbol->is_extern = is_extern;
 
         if (!symbol_table_insert(analyzer->symbol_table, symbol))
         {
@@ -905,6 +913,7 @@ void analyze_declaration(SemanticAnalyzer *analyzer, ASTNode *node)
         // 仅声明，无初始化
         Symbol *symbol = symbol_create(var_name, var_type, SYMBOL_VARIABLE);
         symbol->declaration = node;
+        symbol->is_extern = is_extern;
 
         if (!symbol_table_insert(analyzer->symbol_table, symbol))
         {
@@ -1141,6 +1150,17 @@ void analyze_function(SemanticAnalyzer *analyzer, ASTNode *node)
         for (int i = 0; i < param_list->num_children; i++)
         {
             ASTNode *param = param_list->children[i];
+
+            // 检查是否是可变参数 (...)
+            if (param->type == AST_PARAM_LIST &&
+                param->value.string_val &&
+                strcmp(param->value.string_val, "...") == 0)
+            {
+                // 可变参数，跳过但标记函数为可变参数
+                // TODO: 可以在func_type中添加is_variadic标志
+                continue;
+            }
+
             if (param->type == AST_DECLARATION && param->num_children >= 2)
             {
                 TypeInfo *param_type = get_type_from_specifier(param->children[0]);

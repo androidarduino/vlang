@@ -25,6 +25,7 @@ typedef struct Symbol
     int is_defined;       // 函数是否已定义
     int is_static;        // 是否是静态变量
     int is_global;        // 是否是全局变量
+    int is_extern;        // 是否是外部符号
     char *label;          // 全局/静态变量的标签名
 } Symbol;
 
