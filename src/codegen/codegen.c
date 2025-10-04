@@ -231,7 +231,14 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
         Symbol *symbol = (Symbol *)node->semantic_info;
         if (symbol)
         {
-            if (symbol->is_global || symbol->is_static)
+            // 检查是否是枚举常量（declaration节点类型为AST_ENUM_CONST）
+            if (symbol->declaration && symbol->declaration->type == AST_ENUM_CONST)
+            {
+                // 枚举常量：直接使用其整数值
+                int enum_value = symbol->declaration->value.int_val;
+                emit(gen, "    movq $%d, %%rax  # Enum constant '%s'", enum_value, name);
+            }
+            else if (symbol->is_global || symbol->is_static)
             {
                 // 全局/静态变量：使用标签访问
                 emit(gen, "    movq %s(%%rip), %%rax  # Load global/static '%s'",
@@ -269,6 +276,12 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
         // 执行操作（结果在 rax）
         switch (node->value.op_type)
         {
+        case OP_COMMA:
+            // 逗号运算符：左侧已求值并丢弃，右侧结果已在rax中
+            // rbx中是右侧的值，直接使用
+            emit(gen, "    movq %%rbx, %%rax  # Comma operator: use right side");
+            break;
+
         case OP_ADD:
         {
             // 检查是否是指针算术

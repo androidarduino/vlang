@@ -24,7 +24,7 @@ ASTNode *ast_root = NULL;
 %token <float_val> FLOATING_CONSTANT
 %token <string_val> CHARACTER_CONSTANT STRING_LITERAL
 
-%token INT FLOAT CHAR VOID SHORT LONG DOUBLE UNSIGNED STRUCT STATIC RETURN IF ELSE WHILE DO FOR SWITCH CASE DEFAULT BREAK CONTINUE
+%token INT FLOAT CHAR VOID SHORT LONG DOUBLE UNSIGNED STRUCT STATIC TYPEDEF ENUM RETURN IF ELSE WHILE DO FOR SWITCH CASE DEFAULT BREAK CONTINUE
 %token SEMICOLON LBRACE RBRACE COMMA LPAREN RPAREN LBRACKET RBRACKET
 %token ASSIGN ADD_ASSIGN SUB_ASSIGN MUL_ASSIGN DIV_ASSIGN MOD_ASSIGN
 %token AND_ASSIGN OR_ASSIGN XOR_ASSIGN LEFT_ASSIGN RIGHT_ASSIGN
@@ -47,6 +47,7 @@ ASTNode *ast_root = NULL;
 %type <node> argument_expression_list
 %type <node> initializer initializer_list
 %type <node> struct_specifier struct_declaration_list struct_declaration
+%type <node> enum_specifier enumerator_list
 
 %start program
 
@@ -68,6 +69,45 @@ external_declaration:
     function_definition { $$ = $1; }
     | declaration { $$ = $1; }
     | struct_specifier SEMICOLON { $$ = $1; }
+    | enum_specifier SEMICOLON { $$ = $1; }
+    | TYPEDEF INT IDENTIFIER SEMICOLON {
+        $$ = create_ast_node(AST_TYPEDEF, yylineno);
+        ASTNode *type_node = create_string_node("int", yylineno);
+        type_node->type = AST_TYPE_SPECIFIER;
+        ASTNode *name_node = create_identifier_node($3, yylineno);
+        add_child($$, type_node);
+        add_child($$, name_node);
+        free($3);
+    }
+    | TYPEDEF FLOAT IDENTIFIER SEMICOLON {
+        $$ = create_ast_node(AST_TYPEDEF, yylineno);
+        ASTNode *type_node = create_string_node("float", yylineno);
+        type_node->type = AST_TYPE_SPECIFIER;
+        ASTNode *name_node = create_identifier_node($3, yylineno);
+        add_child($$, type_node);
+        add_child($$, name_node);
+        free($3);
+    }
+    | TYPEDEF CHAR IDENTIFIER SEMICOLON {
+        $$ = create_ast_node(AST_TYPEDEF, yylineno);
+        ASTNode *type_node = create_string_node("char", yylineno);
+        type_node->type = AST_TYPE_SPECIFIER;
+        ASTNode *name_node = create_identifier_node($3, yylineno);
+        add_child($$, type_node);
+        add_child($$, name_node);
+        free($3);
+    }
+    | TYPEDEF IDENTIFIER IDENTIFIER SEMICOLON {
+        // typedef MyInt MyInt2; (嵌套typedef)
+        $$ = create_ast_node(AST_TYPEDEF, yylineno);
+        ASTNode *type_node = create_string_node($2, yylineno);
+        type_node->type = AST_TYPE_SPECIFIER;
+        ASTNode *name_node = create_identifier_node($3, yylineno);
+        add_child($$, type_node);
+        add_child($$, name_node);
+        free($2);
+        free($3);
+    }
     ;
 
 function_definition:
@@ -84,6 +124,12 @@ declaration_specifiers:
     | FLOAT { $$ = create_string_node("float", yylineno); $$->type = AST_TYPE_SPECIFIER; }
     | CHAR { $$ = create_string_node("char", yylineno); $$->type = AST_TYPE_SPECIFIER; }
     | VOID { $$ = create_string_node("void", yylineno); $$->type = AST_TYPE_SPECIFIER; }
+    | IDENTIFIER { 
+        // 可能是typedef定义的类型名
+        $$ = create_string_node($1, yylineno); 
+        $$->type = AST_TYPE_SPECIFIER;
+        free($1);
+    }
     | SHORT { $$ = create_string_node("short", yylineno); $$->type = AST_TYPE_SPECIFIER; }
     | LONG { $$ = create_string_node("long", yylineno); $$->type = AST_TYPE_SPECIFIER; }
     | DOUBLE { $$ = create_string_node("double", yylineno); $$->type = AST_TYPE_SPECIFIER; }
@@ -318,6 +364,10 @@ jump_statement:
 
 expression:
     assignment_expression { $$ = $1; }
+    | expression COMMA assignment_expression {
+        $$ = create_binary_expr_node(OP_COMMA, $1, $3, yylineno);
+        $$->type = AST_BINARY_EXPR;
+    }
     ;
 
 assignment_expression:
@@ -579,6 +629,36 @@ struct_specifier:
         ASTNode *name = create_identifier_node($2, yylineno);
         add_child($$, name);
         free($2);
+    }
+    ;
+
+enum_specifier:
+    ENUM IDENTIFIER LBRACE enumerator_list RBRACE {
+        $$ = create_ast_node(AST_ENUM_DEF, yylineno);
+        ASTNode *name_node = create_identifier_node($2, yylineno);
+        add_child($$, name_node);
+        add_child($$, $4);
+        free($2);
+    }
+    | ENUM LBRACE enumerator_list RBRACE {
+        $$ = create_ast_node(AST_ENUM_DEF, yylineno);
+        add_child($$, $3);
+    }
+    ;
+
+enumerator_list:
+    IDENTIFIER {
+        $$ = create_ast_node(AST_ENUM_CONST, yylineno);
+        $$->value.string_val = strdup($1);
+        // 不要在这里设置int_val，会覆盖string_val（union类型）
+        free($1);
+    }
+    | enumerator_list COMMA IDENTIFIER {
+        $$ = $1;
+        ASTNode *new_const = create_ast_node(AST_ENUM_CONST, yylineno);
+        new_const->value.string_val = strdup($3);
+        add_child($$, new_const);
+        free($3);
     }
     ;
 

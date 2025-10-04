@@ -38,7 +38,10 @@ typedef enum
     AST_INIT_LIST,       // 初始化列表 {1, 2, 3}
     AST_STRUCT_DEF,      // 结构体定义
     AST_MEMBER_ACCESS,   // 成员访问 a.b 或 a->b
-    AST_TERNARY_EXPR     // 三元运算符 a ? b : c
+    AST_TERNARY_EXPR,    // 三元运算符 a ? b : c
+    AST_TYPEDEF,         // typedef声明
+    AST_ENUM_DEF,        // 枚举定义
+    AST_ENUM_CONST       // 枚举常量
 } ASTNodeType;
 
 // 运算符类型
@@ -85,7 +88,8 @@ typedef enum
     OP_BIT_XOR,    // ^
     OP_BIT_NOT,    // ~
     OP_LEFT_SHIFT, // <<
-    OP_RIGHT_SHIFT // >>
+    OP_RIGHT_SHIFT, // >>
+    OP_COMMA       // ,
 } OperatorType;
 
 // 前向声明

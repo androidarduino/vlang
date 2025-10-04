@@ -9,7 +9,8 @@ typedef enum
 {
     SYMBOL_VARIABLE,
     SYMBOL_FUNCTION,
-    SYMBOL_PARAMETER
+    SYMBOL_PARAMETER,
+    SYMBOL_TYPEDEF // typedef类型别名
 } SymbolKind;
 
 // 符号表项

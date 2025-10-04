@@ -61,10 +61,12 @@ TypeInfo *get_type_from_specifier(ASTNode *node)
         return create_type(TYPE_UNKNOWN);
     }
 
-    // 处理基本类型
+    // 处理基本类型和typedef别名
     if (node->type == AST_TYPE_SPECIFIER)
     {
         const char *type_str = node->value.string_val;
+
+        // 先检查基本类型
         if (strcmp(type_str, "int") == 0)
         {
             return create_type(TYPE_INT);
@@ -130,6 +132,12 @@ TypeInfo *check_binary_operation(SemanticAnalyzer *analyzer, OperatorType op,
     {
         semantic_error(analyzer, lineno, "Invalid operand types");
         return create_type(TYPE_UNKNOWN);
+    }
+
+    // 逗号运算符：返回右侧表达式的类型
+    if (op == OP_COMMA)
+    {
+        return right;
     }
 
     // 算术运算符
@@ -1197,6 +1205,83 @@ int analyze_program(SemanticAnalyzer *analyzer, ASTNode *root)
         {
             // 结构体定义 - 暂时跳过，不进行语义分析
             // TODO: 实现完整的结构体类型检查
+        }
+        else if (child->type == AST_TYPEDEF)
+        {
+            // typedef声明：创建类型别名
+            if (child->num_children >= 2)
+            {
+                ASTNode *type_node = child->children[0]; // 基础类型
+                ASTNode *name_node = child->children[1]; // 别名
+
+                if (type_node && name_node && name_node->type == AST_IDENTIFIER)
+                {
+                    const char *alias_name = name_node->value.string_val;
+                    TypeInfo *base_type = get_type_from_specifier(type_node);
+
+                    // 创建符号作为typedef
+                    Symbol *symbol = symbol_create(alias_name, base_type, SYMBOL_TYPEDEF);
+                    symbol->declaration = child;
+                    symbol_table_insert(analyzer->symbol_table, symbol);
+                }
+            }
+        }
+        else if (child->type == AST_ENUM_DEF)
+        {
+            // 枚举定义：将所有枚举常量添加到符号表
+            int enum_value = 0;
+            int start_child = 0;
+
+            // 检查是否有枚举名（第一个子节点可能是名字）
+            if (child->num_children > 0 && child->children[0]->type == AST_IDENTIFIER)
+            {
+                start_child = 1; // 跳过名字
+            }
+
+            // 处理枚举常量列表
+            if (start_child < child->num_children)
+            {
+                ASTNode *enum_list = child->children[start_child];
+
+                // enum_list应该是AST_ENUM_CONST节点（第一个枚举）
+                // 它的子节点是其他枚举常量
+                if (enum_list && enum_list->type == AST_ENUM_CONST)
+                {
+                    // 处理第一个枚举常量
+                    if (enum_list->value.string_val)
+                    {
+                        const char *const_name = enum_list->value.string_val;
+
+                        // 创建符号
+                        TypeInfo *int_type = create_type(TYPE_INT);
+                        Symbol *symbol = symbol_create(const_name, int_type, SYMBOL_VARIABLE);
+                        symbol->declaration = enum_list;
+                        enum_list->value.int_val = enum_value;
+                        symbol_table_insert(analyzer->symbol_table, symbol);
+                        enum_value++;
+                    }
+
+                    // 处理后续枚举常量（作为第一个的子节点）
+                    for (int j = 0; j < enum_list->num_children; j++)
+                    {
+                        ASTNode *enum_const = enum_list->children[j];
+                        if (!enum_const || enum_const->type != AST_ENUM_CONST)
+                            continue;
+                        if (!enum_const->value.string_val)
+                            continue;
+
+                        const char *const_name = enum_const->value.string_val;
+
+                        // 创建符号
+                        TypeInfo *int_type = create_type(TYPE_INT);
+                        Symbol *symbol = symbol_create(const_name, int_type, SYMBOL_VARIABLE);
+                        symbol->declaration = enum_const;
+                        enum_const->value.int_val = enum_value;
+                        symbol_table_insert(analyzer->symbol_table, symbol);
+                        enum_value++;
+                    }
+                }
+            }
         }
         else
         {

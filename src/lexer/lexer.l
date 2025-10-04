@@ -21,6 +21,8 @@ extern int yylineno;
 "unsigned"      return UNSIGNED;
 "struct"        return STRUCT;
 "static"        return STATIC;
+"typedef"       return TYPEDEF;
+"enum"          return ENUM;
 "return"        return RETURN;
 "if"            return IF;
 "else"          return ELSE;
