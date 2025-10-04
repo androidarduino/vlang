@@ -21,6 +21,9 @@ Symbol *symbol_create(const char *name, TypeInfo *type, SymbolKind kind)
     symbol->offset = 0;
     symbol->declaration = NULL;
     symbol->is_defined = 0;
+    symbol->is_static = 0;
+    symbol->is_global = 0;
+    symbol->label = NULL;
     return symbol;
 }
 

@@ -5,39 +5,46 @@
 #include "ast.h"
 
 // 符号类型
-typedef enum {
+typedef enum
+{
     SYMBOL_VARIABLE,
     SYMBOL_FUNCTION,
     SYMBOL_PARAMETER
 } SymbolKind;
 
 // 符号表项
-typedef struct Symbol {
+typedef struct Symbol
+{
     char *name;
     TypeInfo *type;
     SymbolKind kind;
     int scope_level;
-    int offset;                 // 相对于栈帧的偏移
-    ASTNode *declaration;       // 指向声明节点
-    int is_defined;             // 函数是否已定义
+    int offset;           // 相对于栈帧的偏移（局部变量）
+    ASTNode *declaration; // 指向声明节点
+    int is_defined;       // 函数是否已定义
+    int is_static;        // 是否是静态变量
+    int is_global;        // 是否是全局变量
+    char *label;          // 全局/静态变量的标签名
 } Symbol;
 
 // 作用域
-typedef struct Scope {
+typedef struct Scope
+{
     Symbol **symbols;
     int num_symbols;
     int capacity;
-    struct Scope *parent;       // 父作用域
-    int level;                  // 作用域层级
-    int next_offset;            // 下一个可用的偏移量
+    struct Scope *parent; // 父作用域
+    int level;            // 作用域层级
+    int next_offset;      // 下一个可用的偏移量
 } Scope;
 
 // 符号表
-typedef struct SymbolTable {
+typedef struct SymbolTable
+{
     Scope *current_scope;
     Scope *global_scope;
     int current_level;
-    int has_errors;             // 是否有错误
+    int has_errors; // 是否有错误
 } SymbolTable;
 
 // 函数声明

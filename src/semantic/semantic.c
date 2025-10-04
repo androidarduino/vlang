@@ -961,6 +961,20 @@ void analyze_statement(SemanticAnalyzer *analyzer, ASTNode *node)
         analyzer->loop_depth--;
         break;
 
+    case AST_DO_WHILE_STMT:
+        // do body while (condition);
+        analyzer->loop_depth++;
+        if (node->num_children > 0)
+        {
+            analyze_statement(analyzer, node->children[0]); // body
+        }
+        analyzer->loop_depth--;
+        if (node->num_children > 1)
+        {
+            analyze_expression(analyzer, node->children[1]); // condition
+        }
+        break;
+
     case AST_FOR_STMT:
     {
         // for (init; condition; increment) body

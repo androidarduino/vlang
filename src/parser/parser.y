@@ -24,7 +24,7 @@ ASTNode *ast_root = NULL;
 %token <float_val> FLOATING_CONSTANT
 %token <string_val> CHARACTER_CONSTANT STRING_LITERAL
 
-%token INT FLOAT CHAR VOID SHORT LONG DOUBLE UNSIGNED STRUCT RETURN IF ELSE WHILE FOR SWITCH CASE DEFAULT BREAK CONTINUE
+%token INT FLOAT CHAR VOID SHORT LONG DOUBLE UNSIGNED STRUCT STATIC RETURN IF ELSE WHILE DO FOR SWITCH CASE DEFAULT BREAK CONTINUE
 %token SEMICOLON LBRACE RBRACE COMMA LPAREN RPAREN LBRACKET RBRACKET
 %token ASSIGN ADD_ASSIGN SUB_ASSIGN MUL_ASSIGN DIV_ASSIGN MOD_ASSIGN
 %token AND_ASSIGN OR_ASSIGN XOR_ASSIGN LEFT_ASSIGN RIGHT_ASSIGN
@@ -66,6 +66,7 @@ program:
 
 external_declaration:
     function_definition { $$ = $1; }
+    | declaration { $$ = $1; }
     | struct_specifier SEMICOLON { $$ = $1; }
     ;
 
@@ -88,6 +89,9 @@ declaration_specifiers:
     | DOUBLE { $$ = create_string_node("double", yylineno); $$->type = AST_TYPE_SPECIFIER; }
     | UNSIGNED { $$ = create_string_node("unsigned", yylineno); $$->type = AST_TYPE_SPECIFIER; }
     | struct_specifier { $$ = $1; }
+    | STATIC INT { $$ = create_string_node("int", yylineno); $$->type = AST_TYPE_SPECIFIER; $$->lineno = -1; /* Mark as static with negative lineno */ }
+    | STATIC FLOAT { $$ = create_string_node("float", yylineno); $$->type = AST_TYPE_SPECIFIER; $$->lineno = -1; }
+    | STATIC CHAR { $$ = create_string_node("char", yylineno); $$->type = AST_TYPE_SPECIFIER; $$->lineno = -1; }
     ;
 
 declarator:
@@ -262,6 +266,11 @@ iteration_statement:
         $$ = create_ast_node(AST_WHILE_STMT, yylineno);
         add_child($$, $3);
         add_child($$, $5);
+    }
+    | DO statement WHILE LPAREN expression RPAREN SEMICOLON {
+        $$ = create_ast_node(AST_DO_WHILE_STMT, yylineno);
+        add_child($$, $2);  // 循环体
+        add_child($$, $5);  // 条件表达式
     }
     | FOR LPAREN expression_statement expression_statement RPAREN statement {
         $$ = create_ast_node(AST_FOR_STMT, yylineno);

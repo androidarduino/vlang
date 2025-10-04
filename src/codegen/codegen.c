@@ -231,8 +231,18 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
         Symbol *symbol = (Symbol *)node->semantic_info;
         if (symbol)
         {
-            int offset = -(symbol->offset + 8); // 相对于 rbp 的偏移
-            emit(gen, "    movq %d(%%rbp), %%rax  # Load variable '%s'", offset, name);
+            if (symbol->is_global || symbol->is_static)
+            {
+                // 全局/静态变量：使用标签访问
+                emit(gen, "    movq %s(%%rip), %%rax  # Load global/static '%s'",
+                     symbol->label, name);
+            }
+            else
+            {
+                // 局部变量：使用栈偏移访问
+                int offset = -(symbol->offset + 8); // 相对于 rbp 的偏移
+                emit(gen, "    movq %d(%%rbp), %%rax  # Load variable '%s'", offset, name);
+            }
         }
         else
         {
@@ -580,8 +590,18 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
             Symbol *symbol = (Symbol *)lhs->semantic_info;
             if (symbol)
             {
-                int offset = -(symbol->offset + 8);
-                emit(gen, "    movq %%rax, %d(%%rbp)  # Store to variable '%s'", offset, name);
+                if (symbol->is_global || symbol->is_static)
+                {
+                    // 全局/静态变量：使用标签访问
+                    emit(gen, "    movq %%rax, %s(%%rip)  # Store to global/static '%s'",
+                         symbol->label, name);
+                }
+                else
+                {
+                    // 局部变量：使用栈偏移访问
+                    int offset = -(symbol->offset + 8);
+                    emit(gen, "    movq %%rax, %d(%%rbp)  # Store to variable '%s'", offset, name);
+                }
             }
         }
         break;
@@ -920,6 +940,20 @@ void gen_statement(CodeGenerator *gen, ASTNode *node)
             ASTNode *type_spec = node->children[0];
             ASTNode *declarator = node->children[1];
 
+            // 检查是否是静态变量
+            Symbol *symbol = NULL;
+            if (declarator->type == AST_ASSIGN_EXPR && declarator->num_children > 0)
+            {
+                symbol = (Symbol *)declarator->children[0]->semantic_info;
+            }
+
+            // 静态变量不在函数中初始化，已经在.data段初始化
+            if (symbol && symbol->is_static)
+            {
+                // 跳过静态变量的初始化代码生成
+                break;
+            }
+
             // 如果是赋值表达式（带初始化）
             if (declarator->type == AST_ASSIGN_EXPR)
             {
@@ -1074,6 +1108,45 @@ void gen_statement(CodeGenerator *gen, ASTNode *node)
 
         emit(gen, "    jmp .L%d  # Loop back", start_label);
         emit(gen, ".L%d:  # While loop end", end_label);
+
+        // 恢复循环上下文
+        gen->loop_context = loop_ctx.parent;
+        break;
+    }
+
+    case AST_DO_WHILE_STMT:
+    {
+        int start_label = new_label(gen);
+        int continue_label = new_label(gen);
+        int end_label = new_label(gen);
+
+        // 设置循环上下文
+        LoopContext loop_ctx;
+        loop_ctx.start_label = start_label;
+        loop_ctx.end_label = end_label;
+        loop_ctx.continue_label = continue_label; // continue 跳到条件判断
+        loop_ctx.parent = gen->loop_context;
+        gen->loop_context = &loop_ctx;
+
+        emit(gen, ".L%d:  # Do-while loop start", start_label);
+
+        // 循环体
+        if (node->num_children > 0)
+        {
+            gen_statement(gen, node->children[0]);
+        }
+
+        emit(gen, ".L%d:  # Do-while continue point", continue_label);
+
+        // 计算条件
+        if (node->num_children > 1)
+        {
+            gen_expression(gen, node->children[1]);
+            emit(gen, "    testq %%rax, %%rax  # Test condition");
+            emit(gen, "    jne .L%d  # Jump if true", start_label);
+        }
+
+        emit(gen, ".L%d:  # Do-while loop end", end_label);
 
         // 恢复循环上下文
         gen->loop_context = loop_ctx.parent;
@@ -1324,6 +1397,81 @@ void gen_function(CodeGenerator *gen, ASTNode *node)
     gen_epilogue(gen);
 }
 
+// 收集全局/静态变量
+static void collect_global_symbols(ASTNode *node, Symbol ***vars, int *count, int *capacity)
+{
+    if (!node)
+        return;
+
+    if (node->type == AST_DECLARATION && node->num_children >= 2)
+    {
+        ASTNode *declarator = node->children[1];
+        Symbol *symbol = NULL;
+
+        if (declarator->type == AST_ASSIGN_EXPR && declarator->num_children > 0)
+        {
+            symbol = (Symbol *)declarator->children[0]->semantic_info;
+        }
+        else
+        {
+            symbol = (Symbol *)declarator->semantic_info;
+        }
+
+        if (symbol && (symbol->is_global || symbol->is_static))
+        {
+            if (*count >= *capacity)
+            {
+                *capacity *= 2;
+                *vars = realloc(*vars, (*capacity) * sizeof(Symbol *));
+            }
+            (*vars)[(*count)++] = symbol;
+        }
+    }
+
+    for (int i = 0; i < node->num_children; i++)
+    {
+        collect_global_symbols(node->children[i], vars, count, capacity);
+    }
+}
+
+// 生成全局/静态变量段
+static void gen_global_data(CodeGenerator *gen, Symbol **vars, int count)
+{
+    if (count == 0)
+        return;
+
+    emit(gen, "");
+    emit(gen, "    .data");
+    emit(gen, "    # Global and static variables");
+
+    for (int i = 0; i < count; i++)
+    {
+        Symbol *var = vars[i];
+        if (var->is_global)
+        {
+            emit(gen, "    .globl %s", var->label);
+        }
+        emit(gen, "%s:", var->label);
+
+        // 从声明节点中获取初始化值
+        long init_value = 0;
+        if (var->declaration && var->declaration->num_children >= 2)
+        {
+            ASTNode *declarator = var->declaration->children[1];
+            if (declarator->type == AST_ASSIGN_EXPR && declarator->num_children >= 2)
+            {
+                ASTNode *init_expr = declarator->children[1];
+                if (init_expr->type == AST_INT_LITERAL)
+                {
+                    init_value = init_expr->value.int_val;
+                }
+            }
+        }
+
+        emit(gen, "    .quad %ld  # %s", init_value, var->name);
+    }
+}
+
 // 生成完整程序代码
 void generate_code(CodeGenerator *gen, ASTNode *root)
 {
@@ -1333,11 +1481,21 @@ void generate_code(CodeGenerator *gen, ASTNode *root)
     // 输出文件头
     emit(gen, "    .file \"output.c\"");
 
-    // 首先生成所有代码到临时缓冲区，同时收集字符串常量
-    // 为简化起见，我们先遍历AST收集所有函数的代码到内存
-    // 但这会很复杂。更简单的方法：第一遍收集字符串，第二遍生成代码
-    // 或者：将字符串段放在最后
+    // 收集所有全局/静态变量
+    Symbol **global_vars = malloc(16 * sizeof(Symbol *));
+    int var_count = 0;
+    int var_capacity = 16;
 
+    for (int i = 0; i < root->num_children; i++)
+    {
+        collect_global_symbols(root->children[i], &global_vars, &var_count, &var_capacity);
+    }
+
+    // 生成全局/静态变量段
+    gen_global_data(gen, global_vars, var_count);
+    free(global_vars);
+
+    emit(gen, "");
     emit(gen, "    .text");
 
     // 遍历所有函数（这会收集字符串常量）

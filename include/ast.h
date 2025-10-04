@@ -13,6 +13,7 @@ typedef enum
     AST_EXPR_STMT,
     AST_IF_STMT,
     AST_WHILE_STMT,
+    AST_DO_WHILE_STMT,
     AST_FOR_STMT,
     AST_SWITCH_STMT,
     AST_CASE_STMT,
