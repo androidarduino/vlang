@@ -30,7 +30,7 @@ ASTNode *ast_root = NULL;
 %token LT GT LE_OP GE_OP EQ_OP NE_OP
 %token AND_OP OR_OP NOT_OP DOT ARROW
 
-%type <node> program function_definition declaration_specifiers
+%type <node> program external_declaration function_definition declaration_specifiers
 %type <node> declarator compound_statement statement_list statement
 %type <node> declaration init_declarator parameter_list parameter_declaration
 %type <node> expression_statement selection_statement iteration_statement
@@ -48,15 +48,20 @@ ASTNode *ast_root = NULL;
 %%
 
 program:
-    function_definition {
+    external_declaration {
         ast_root = create_ast_node(AST_PROGRAM, yylineno);
         add_child(ast_root, $1);
         $$ = ast_root;
     }
-    | program function_definition {
+    | program external_declaration {
         add_child($1, $2);
         $$ = $1;
     }
+    ;
+
+external_declaration:
+    function_definition { $$ = $1; }
+    | struct_specifier SEMICOLON { $$ = $1; }
     ;
 
 function_definition:

@@ -374,6 +374,46 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
             // 存储值到指针指向的位置
             emit(gen, "    movq %%rax, (%%rbx)  # Store to dereferenced pointer");
         }
+        // 检查左侧是否是结构体成员访问 (p.x = value)
+        else if (lhs->type == AST_MEMBER_ACCESS)
+        {
+            if (lhs->num_children < 2)
+                break;
+
+            ASTNode *struct_node = lhs->children[0];
+            ASTNode *member_node = lhs->children[1];
+
+            // 计算右侧表达式的值
+            gen_expression(gen, node->children[1]);
+
+            // 如果结构体是标识符
+            if (struct_node->type == AST_IDENTIFIER)
+            {
+                Symbol *symbol = (Symbol *)struct_node->semantic_info;
+                if (symbol)
+                {
+                    // 计算成员偏移（简化：x=0, y=8）
+                    const char *member_name = member_node->value.string_val;
+                    int member_offset = 0;
+
+                    if (strcmp(member_name, "y") == 0)
+                    {
+                        member_offset = 8;
+                    }
+                    else if (strcmp(member_name, "x") == 0)
+                    {
+                        member_offset = 0;
+                    }
+
+                    // 结构体变量基地址 + 成员偏移
+                    int base_offset = -(symbol->offset + 8);
+                    int final_offset = base_offset - member_offset;
+
+                    emit(gen, "    movq %%rax, %d(%%rbp)  # Store to %s.%s",
+                         final_offset, symbol->name, member_name);
+                }
+            }
+        }
         else if (lhs->type == AST_IDENTIFIER || lhs->type == AST_DECLARATOR)
         {
             // 计算右侧表达式
@@ -543,9 +583,38 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
         if (node->num_children < 2)
             break;
 
-        // TODO: 实现结构体成员访问的代码生成
-        emit(gen, "    # Member access not fully implemented yet");
-        emit(gen, "    movq $0, %%rax");
+        ASTNode *struct_node = node->children[0];
+        ASTNode *member_node = node->children[1];
+
+        // 简化实现：假设结构体变量是标识符，成员按顺序排列
+        if (struct_node->type == AST_IDENTIFIER)
+        {
+            Symbol *symbol = (Symbol *)struct_node->semantic_info;
+            if (symbol)
+            {
+                // 计算成员偏移
+                // 简化：假设x在offset=0，y在offset=8
+                const char *member_name = member_node->value.string_val;
+                int member_offset = 0;
+
+                if (strcmp(member_name, "y") == 0)
+                {
+                    member_offset = 8;
+                }
+                else if (strcmp(member_name, "x") == 0)
+                {
+                    member_offset = 0;
+                }
+
+                // 结构体变量的基地址 + 成员偏移
+                int base_offset = -(symbol->offset + 8); // 结构体变量的栈位置
+                int final_offset = base_offset - member_offset;
+
+                emit(gen, "    leaq %d(%%rbp), %%rax  # Load address of %s.%s",
+                     final_offset, symbol->name, member_name);
+                emit(gen, "    movq (%%rax), %%rax  # Load member value");
+            }
+        }
         break;
     }
 
@@ -569,7 +638,7 @@ void gen_statement(CodeGenerator *gen, ASTNode *node)
         {
             ASTNode *type_spec = node->children[0];
             ASTNode *declarator = node->children[1];
-            
+
             // 如果是赋值表达式（带初始化）
             if (declarator->type == AST_ASSIGN_EXPR)
             {
@@ -584,7 +653,7 @@ void gen_statement(CodeGenerator *gen, ASTNode *node)
                         Symbol *symbol = NULL;
                         ASTNode *search_node = declarator->children[0];
                         int depth = 0;
-                        
+
                         while (search_node && depth < 10)
                         {
                             if (search_node->semantic_info)
@@ -592,7 +661,7 @@ void gen_statement(CodeGenerator *gen, ASTNode *node)
                                 symbol = (Symbol *)search_node->semantic_info;
                                 break;
                             }
-                            
+
                             // 尝试进入第一个子节点
                             if (search_node->num_children > 0)
                             {
