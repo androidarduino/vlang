@@ -26,6 +26,8 @@ extern int yylineno;
 "typedef"       return TYPEDEF;
 "enum"          return ENUM;
 "sizeof"        return SIZEOF;
+"asm"           return ASM;
+"__asm__"       return ASM;
 "return"        return RETURN;
 "if"            return IF;
 "else"          return ELSE;

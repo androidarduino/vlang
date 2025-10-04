@@ -43,7 +43,8 @@ typedef enum
     AST_ENUM_DEF,        // 枚举定义
     AST_ENUM_CONST,      // 枚举常量
     AST_UNION_DEF,       // union定义
-    AST_SIZEOF_EXPR      // sizeof表达式
+    AST_SIZEOF_EXPR,     // sizeof表达式
+    AST_ASM_STMT         // 内联汇编语句
 } ASTNodeType;
 
 // 运算符类型
