@@ -1,9 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include "ast.h"
 #include "semantic.h"
 #include "codegen.h"
+#include "preprocessor.h"
 
 extern int yyparse();
 extern ASTNode *ast_root;
@@ -43,19 +45,64 @@ int main(int argc, char **argv) {
         }
     }
     
-    // Redirect input if file specified
-    if (input_file) {
-        FILE *file = freopen(input_file, "r", stdin);
-        if (!file) {
-            fprintf(stderr, "Error: Cannot open input file: %s\n", input_file);
-            return 1;
-        }
-    }
-    
     printf("=== C Compiler - Full Pipeline ===\n\n");
     
+    // ========== Phase 0: Preprocessing ==========
+    char *preprocessed_code = NULL;
+    char temp_file[] = "/tmp/cc_preprocessed_XXXXXX";
+    
+    if (input_file) {
+        printf("[Phase 0/5] Preprocessing...\n");
+        
+        // 读取输入文件
+        char *source_code = read_file_content(input_file);
+        if (!source_code) {
+            fprintf(stderr, "Error: Cannot read input file: %s\n", input_file);
+            return 1;
+        }
+        
+        // 创建预处理器
+        Preprocessor *pp = preprocessor_create();
+        if (!pp) {
+            fprintf(stderr, "Error: Cannot create preprocessor\n");
+            free(source_code);
+            return 1;
+        }
+        
+        // 预处理
+        preprocessed_code = preprocessor_process(pp, source_code, input_file);
+        free(source_code);
+        preprocessor_free(pp);
+        
+        if (!preprocessed_code) {
+            fprintf(stderr, "✗ Preprocessing failed.\n");
+            return 1;
+        }
+        
+        printf("✓ Preprocessing successful!\n\n");
+        
+        // 将预处理后的代码写入临时文件
+        int fd = mkstemp(temp_file);
+        if (fd == -1) {
+            fprintf(stderr, "Error: Cannot create temporary file\n");
+            free(preprocessed_code);
+            return 1;
+        }
+        
+        FILE *temp_fp = fdopen(fd, "w");
+        fprintf(temp_fp, "%s", preprocessed_code);
+        fclose(temp_fp);
+        
+        // 重定向stdin到临时文件
+        freopen(temp_file, "r", stdin);
+        
+    } else {
+        // 没有输入文件，从stdin读取（不预处理）
+        printf("[Phase 0/5] Preprocessing skipped (reading from stdin)...\n\n");
+    }
+    
     // ========== Phase 1: Lexical and Syntax Analysis ==========
-    printf("[Phase 1/4] Lexical and Syntax Analysis...\n");
+    printf("[Phase 1/5] Lexical and Syntax Analysis...\n");
     if (yyparse() != 0) {
         fprintf(stderr, "✗ Parsing failed.\n");
         return 1;
@@ -75,10 +122,10 @@ int main(int argc, char **argv) {
     }
     
     // ========== Phase 2: Semantic Analysis ==========
-    printf("[Phase 2/4] Semantic Analysis...\n");
+    printf("[Phase 2/5] Semantic Analysis...\n");
     SemanticAnalyzer *analyzer = semantic_analyzer_create();
     
-    int semantic_ok = analyze_program(analyzer, ast_root);
+    analyze_program(analyzer, ast_root);
     
     if (debug_mode) {
         printf("\n[Debug] Symbol Table:\n");
@@ -100,7 +147,7 @@ int main(int argc, char **argv) {
     printf("\n");
     
     // ========== Phase 3: Code Generation ==========
-    printf("[Phase 3/4] Code Generation (x86-64 assembly)...\n");
+    printf("[Phase 3/5] Code Generation (x86-64 assembly)...\n");
     
     FILE *out = fopen(output_file, "w");
     if (!out) {
@@ -120,7 +167,7 @@ int main(int argc, char **argv) {
     printf("  → Generated: %s\n\n", output_file);
     
     // ========== Phase 4: Assembling and Linking ==========
-    printf("[Phase 4/4] Assembling and Linking...\n");
+    printf("[Phase 4/5] Assembling and Linking...\n");
     
     char cmd[512];
     snprintf(cmd, sizeof(cmd), "gcc -no-pie %s -o output 2>&1", output_file);
@@ -160,6 +207,11 @@ int main(int argc, char **argv) {
     // Cleanup
     semantic_analyzer_destroy(analyzer);
     free_ast(ast_root);
+    
+    if (preprocessed_code) {
+        free(preprocessed_code);
+        unlink(temp_file); // 删除临时文件
+    }
     
     return 0;
 }

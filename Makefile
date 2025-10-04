@@ -19,6 +19,7 @@ BIN_DIR = .
 LEXER_SRC = $(SRC_DIR)/lexer/lexer.l
 PARSER_SRC = $(SRC_DIR)/parser/parser.y
 AST_SRC = $(SRC_DIR)/ast/ast.c
+PREPROCESSOR_SRC = $(SRC_DIR)/preprocessor/preprocessor.c
 SEMANTIC_SRC = $(SRC_DIR)/semantic/types.c \
                $(SRC_DIR)/semantic/symbol_table.c \
                $(SRC_DIR)/semantic/semantic.c
@@ -34,6 +35,7 @@ PARSER_HDR = $(BUILD_DIR)/y.tab.h
 OBJS = $(BUILD_DIR)/lex.yy.o \
        $(BUILD_DIR)/y.tab.o \
        $(BUILD_DIR)/ast.o \
+       $(BUILD_DIR)/preprocessor.o \
        $(BUILD_DIR)/types.o \
        $(BUILD_DIR)/symbol_table.o \
        $(BUILD_DIR)/semantic.o \
@@ -82,6 +84,11 @@ $(BUILD_DIR)/y.tab.o: $(PARSER_GEN)
 # Compile AST
 $(BUILD_DIR)/ast.o: $(AST_SRC)
 	@echo "Compiling AST..."
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# Compile preprocessor
+$(BUILD_DIR)/preprocessor.o: $(PREPROCESSOR_SRC)
+	@echo "Compiling preprocessor..."
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # Compile types
