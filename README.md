@@ -53,8 +53,9 @@ int main() {
 
 ## ✅ 当前支持的功能 (56%)
 
-### 基础类型
+### 基础类型 ✨
 - ✅ int, float, char, void
+- ✅ **short, long, double, unsigned** ✨ **新增！**
 
 ### 运算符 ✨
 - ✅ 算术: `+`, `-`, `*`, `/`, `%`

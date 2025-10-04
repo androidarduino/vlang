@@ -81,6 +81,22 @@ TypeInfo *get_type_from_specifier(ASTNode *node)
         {
             return create_type(TYPE_VOID);
         }
+        else if (strcmp(type_str, "short") == 0)
+        {
+            return create_type(TYPE_SHORT);
+        }
+        else if (strcmp(type_str, "long") == 0)
+        {
+            return create_type(TYPE_LONG);
+        }
+        else if (strcmp(type_str, "double") == 0)
+        {
+            return create_type(TYPE_DOUBLE);
+        }
+        else if (strcmp(type_str, "unsigned") == 0)
+        {
+            return create_type(TYPE_UNSIGNED);
+        }
         return create_type(TYPE_UNKNOWN);
     }
 

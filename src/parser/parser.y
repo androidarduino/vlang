@@ -24,7 +24,7 @@ ASTNode *ast_root = NULL;
 %token <float_val> FLOATING_CONSTANT
 %token <string_val> CHARACTER_CONSTANT STRING_LITERAL
 
-%token INT FLOAT CHAR VOID STRUCT RETURN IF ELSE WHILE FOR BREAK CONTINUE
+%token INT FLOAT CHAR VOID SHORT LONG DOUBLE UNSIGNED STRUCT RETURN IF ELSE WHILE FOR BREAK CONTINUE
 %token SEMICOLON LBRACE RBRACE COMMA LPAREN RPAREN LBRACKET RBRACKET
 %token ASSIGN PLUS MINUS STAR SLASH PERCENT AMPERSAND
 %token LT GT LE_OP GE_OP EQ_OP NE_OP
@@ -79,6 +79,10 @@ declaration_specifiers:
     | FLOAT { $$ = create_string_node("float", yylineno); $$->type = AST_TYPE_SPECIFIER; }
     | CHAR { $$ = create_string_node("char", yylineno); $$->type = AST_TYPE_SPECIFIER; }
     | VOID { $$ = create_string_node("void", yylineno); $$->type = AST_TYPE_SPECIFIER; }
+    | SHORT { $$ = create_string_node("short", yylineno); $$->type = AST_TYPE_SPECIFIER; }
+    | LONG { $$ = create_string_node("long", yylineno); $$->type = AST_TYPE_SPECIFIER; }
+    | DOUBLE { $$ = create_string_node("double", yylineno); $$->type = AST_TYPE_SPECIFIER; }
+    | UNSIGNED { $$ = create_string_node("unsigned", yylineno); $$->type = AST_TYPE_SPECIFIER; }
     | struct_specifier { $$ = $1; }
     ;
 

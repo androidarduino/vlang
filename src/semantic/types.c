@@ -138,6 +138,18 @@ const char *type_to_string(TypeInfo *type)
     case TYPE_VOID:
         strcpy(buffer, "void");
         break;
+    case TYPE_SHORT:
+        strcpy(buffer, "short");
+        break;
+    case TYPE_LONG:
+        strcpy(buffer, "long");
+        break;
+    case TYPE_DOUBLE:
+        strcpy(buffer, "double");
+        break;
+    case TYPE_UNSIGNED:
+        strcpy(buffer, "unsigned");
+        break;
     case TYPE_FUNCTION:
         if (type->return_type)
         {

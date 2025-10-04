@@ -8,10 +8,10 @@ typedef enum
     TYPE_FLOAT,
     TYPE_CHAR,
     TYPE_VOID,
-    TYPE_SHORT,      // 短整型
-    TYPE_LONG,       // 长整型
-    TYPE_DOUBLE,     // 双精度浮点
-    TYPE_UNSIGNED,   // 无符号整型
+    TYPE_SHORT,    // 短整型
+    TYPE_LONG,     // 长整型
+    TYPE_DOUBLE,   // 双精度浮点
+    TYPE_UNSIGNED, // 无符号整型
     TYPE_POINTER,
     TYPE_ARRAY,
     TYPE_FUNCTION,
