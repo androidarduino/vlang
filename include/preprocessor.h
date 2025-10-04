@@ -6,11 +6,12 @@
 // 宏定义结构
 typedef struct MacroDefinition
 {
-    char *name;      // 宏名称
-    char *value;     // 宏值
-    char **params;   // 参数列表（函数宏）
-    int num_params;  // 参数数量
-    int is_function; // 是否为函数宏
+    char *name;       // 宏名称
+    char *value;      // 宏值
+    char **params;    // 参数列表（函数宏）
+    int num_params;   // 参数数量
+    int is_function;  // 是否为函数宏
+    int is_variadic;  // 是否为可变参数宏
 } MacroDefinition;
 
 // 预处理器结构

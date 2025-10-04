@@ -240,7 +240,7 @@ TypeInfo *check_binary_operation(SemanticAnalyzer *analyzer, OperatorType op,
         }
 
         // 普通算术运算：允许 int, float, double
-        if (left->base_type != TYPE_INT && left->base_type != TYPE_FLOAT && 
+        if (left->base_type != TYPE_INT && left->base_type != TYPE_FLOAT &&
             left->base_type != TYPE_DOUBLE && left->base_type != TYPE_LONG &&
             left->base_type != TYPE_SHORT && left->base_type != TYPE_CHAR)
         {
@@ -249,7 +249,7 @@ TypeInfo *check_binary_operation(SemanticAnalyzer *analyzer, OperatorType op,
                            type_to_string(left));
             return create_type(TYPE_UNKNOWN);
         }
-        if (right->base_type != TYPE_INT && right->base_type != TYPE_FLOAT && 
+        if (right->base_type != TYPE_INT && right->base_type != TYPE_FLOAT &&
             right->base_type != TYPE_DOUBLE && right->base_type != TYPE_LONG &&
             right->base_type != TYPE_SHORT && right->base_type != TYPE_CHAR)
         {

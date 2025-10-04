@@ -291,14 +291,15 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
     {
         // 将浮点数转换为IEEE 754位表示
         float f = node->value.float_val;
-        union {
+        union
+        {
             float f;
             uint32_t i;
         } converter;
         converter.f = f;
-        
+
         // 加载IEEE 754位表示（符号扩展到64位）
-        emit(gen, "    movq $%u, %%rax  # Load float literal %.2f (IEEE 754: 0x%08x)", 
+        emit(gen, "    movq $%u, %%rax  # Load float literal %.2f (IEEE 754: 0x%08x)",
              converter.i, f, converter.i);
         break;
     }

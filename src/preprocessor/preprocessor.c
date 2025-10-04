@@ -134,6 +134,7 @@ void preprocessor_define_macro(Preprocessor *pp, const char *name, const char *v
     pp->macros[pp->num_macros].params = NULL;
     pp->macros[pp->num_macros].num_params = 0;
     pp->macros[pp->num_macros].is_function = 0;
+    pp->macros[pp->num_macros].is_variadic = 0;
     pp->num_macros++;
 }
 
@@ -547,6 +548,219 @@ static const char *process_conditional(Preprocessor *pp, const char *p, int *ski
     return NULL;
 }
 
+// 字符串化运算符 # - 将参数转换为字符串
+static char *stringify(const char *text)
+{
+    static char buffer[2048];
+    char *out = buffer;
+    *out++ = '"';
+
+    const char *p = text;
+    while (*p && out - buffer < 2040)
+    {
+        // 跳过前导和尾随空白
+        if (p == text)
+        {
+            while (*p && isspace(*p))
+                p++;
+        }
+
+        // 转义特殊字符
+        if (*p == '"' || *p == '\\')
+        {
+            *out++ = '\\';
+        }
+
+        if (*p)
+        {
+            *out++ = *p++;
+        }
+    }
+
+    // 去除尾部空白
+    while (out > buffer + 1 && isspace(*(out - 1)))
+    {
+        out--;
+    }
+
+    *out++ = '"';
+    *out = '\0';
+    return strdup(buffer);
+}
+
+// 连接运算符 ## - 连接两个token
+static char *concat_tokens(const char *left, const char *right)
+{
+    static char buffer[1024];
+    char *out = buffer;
+
+    // 复制左侧（去除尾部空白）
+    const char *p = left;
+    while (*p && out - buffer < 1020)
+    {
+        *out++ = *p++;
+    }
+    while (out > buffer && isspace(*(out - 1)))
+    {
+        out--;
+    }
+
+    // 复制右侧（跳过前导空白）
+    p = right;
+    while (*p && isspace(*p))
+        p++;
+    while (*p && out - buffer < 1020)
+    {
+        *out++ = *p++;
+    }
+
+    *out = '\0';
+    return strdup(buffer);
+}
+
+// 处理宏值中的 # 和 ## 运算符
+static char *process_macro_operators(const char *value, char **param_names, char **param_values, int num_params, int is_variadic, const char *va_args)
+{
+    static char buffer[4096];
+    char *out = buffer;
+    const char *p = value;
+
+    while (*p && out - buffer < 4090)
+    {
+        // 处理 ## 连接运算符
+        if (*p == '#' && *(p + 1) == '#')
+        {
+            // 跳过 ##
+            p += 2;
+            p = skip_whitespace(p);
+
+            // 回退到上一个token的末尾
+            while (out > buffer && isspace(*(out - 1)))
+            {
+                out--;
+            }
+
+            // 提取右侧token
+            char right_token[256];
+            int i = 0;
+
+            if (isalpha(*p) || *p == '_')
+            {
+                while (*p && (isalnum(*p) || *p == '_') && i < 255)
+                {
+                    right_token[i++] = *p++;
+                }
+                right_token[i] = '\0';
+
+                // 查找是否是参数
+                const char *right_value = right_token;
+                for (int j = 0; j < num_params; j++)
+                {
+                    if (strcmp(param_names[j], right_token) == 0)
+                    {
+                        right_value = param_values[j];
+                        break;
+                    }
+                }
+
+                // 连接（不添加空格）
+                while (*right_value && out - buffer < 4090)
+                {
+                    *out++ = *right_value++;
+                }
+            }
+            continue;
+        }
+
+        // 处理 # 字符串化运算符
+        if (*p == '#' && *(p + 1) != '#')
+        {
+            p++;
+            p = skip_whitespace(p);
+            
+            // 提取参数名
+            char param_name[256];
+            int i = 0;
+            while (*p && (isalnum(*p) || *p == '_') && i < 255)
+            {
+                param_name[i++] = *p++;
+            }
+            param_name[i] = '\0';
+            
+            // 查找参数值
+            for (int j = 0; j < num_params; j++)
+            {
+                if (strcmp(param_names[j], param_name) == 0)
+                {
+                    char *str = stringify(param_values[j]);
+                    while (*str && out - buffer < 4090)
+                    {
+                        *out++ = *str++;
+                    }
+                    break;
+                }
+            }
+            continue;
+        }
+
+        // 处理普通标识符（可能是参数或__VA_ARGS__）
+        if (isalpha(*p) || *p == '_')
+        {
+            char name[256];
+            int i = 0;
+            const char *start = p;
+            while (*p && (isalnum(*p) || *p == '_') && i < 255)
+            {
+                name[i++] = *p++;
+            }
+            name[i] = '\0';
+
+            // 检查是否是__VA_ARGS__
+            if (is_variadic && strcmp(name, "__VA_ARGS__") == 0)
+            {
+                const char *va = va_args ? va_args : "";
+                while (*va && out - buffer < 4090)
+                {
+                    *out++ = *va++;
+                }
+                continue;
+            }
+
+            // 检查是否是参数
+            int found = 0;
+            for (int j = 0; j < num_params; j++)
+            {
+                if (strcmp(param_names[j], name) == 0)
+                {
+                    const char *val = param_values[j];
+                    while (*val && out - buffer < 4090)
+                    {
+                        *out++ = *val++;
+                    }
+                    found = 1;
+                    break;
+                }
+            }
+
+            if (!found)
+            {
+                // 不是参数，原样输出
+                while (start < p && out - buffer < 4090)
+                {
+                    *out++ = *start++;
+                }
+            }
+        }
+        else
+        {
+            *out++ = *p++;
+        }
+    }
+
+    *out = '\0';
+    return strdup(buffer);
+}
+
 // 展开宏
 static char *expand_macros(Preprocessor *pp, const char *text)
 {
@@ -683,6 +897,59 @@ char *preprocessor_process(Preprocessor *pp, const char *input, const char *file
                     }
                     macro_name[i] = '\0';
 
+                    // 检查是否是函数宏（紧跟'('）
+                    int is_function_macro = 0;
+                    int is_variadic = 0;
+                    char **params = NULL;
+                    int num_params = 0;
+
+                    if (*p == '(')
+                    {
+                        is_function_macro = 1;
+                        p++; // 跳过 '('
+
+                        // 解析参数列表
+                        params = (char **)malloc(16 * sizeof(char *));
+                        while (*p && *p != ')' && num_params < 16)
+                        {
+                            p = skip_whitespace(p);
+
+                            // 检查是否是 ...
+                            if (*p == '.' && *(p + 1) == '.' && *(p + 2) == '.')
+                            {
+                                is_variadic = 1;
+                                p += 3;
+                                p = skip_whitespace(p);
+                                break;
+                            }
+
+                            // 提取参数名
+                            char param[64];
+                            int j = 0;
+                            while (*p && (isalnum(*p) || *p == '_') && j < 63)
+                            {
+                                param[j++] = *p++;
+                            }
+                            param[j] = '\0';
+
+                            if (j > 0)
+                            {
+                                params[num_params++] = strdup(param);
+                            }
+
+                            p = skip_whitespace(p);
+                            if (*p == ',')
+                            {
+                                p++;
+                            }
+                        }
+
+                        if (*p == ')')
+                        {
+                            p++;
+                        }
+                    }
+
                     p = skip_whitespace(p);
 
                     // 提取宏值
@@ -700,7 +967,29 @@ char *preprocessor_process(Preprocessor *pp, const char *input, const char *file
                         macro_value[--i] = '\0';
                     }
 
-                    preprocessor_define_macro(pp, macro_name, macro_value);
+                    // 保存宏定义
+                    if (is_function_macro)
+                    {
+                        // 扩容
+                        if (pp->num_macros >= pp->macro_capacity)
+                        {
+                            pp->macro_capacity = pp->macro_capacity == 0 ? 16 : pp->macro_capacity * 2;
+                            pp->macros = (MacroDefinition *)realloc(pp->macros,
+                                                                    pp->macro_capacity * sizeof(MacroDefinition));
+                        }
+
+                        pp->macros[pp->num_macros].name = strdup(macro_name);
+                        pp->macros[pp->num_macros].value = strdup(macro_value);
+                        pp->macros[pp->num_macros].params = params;
+                        pp->macros[pp->num_macros].num_params = num_params;
+                        pp->macros[pp->num_macros].is_function = 1;
+                        pp->macros[pp->num_macros].is_variadic = is_variadic;
+                        pp->num_macros++;
+                    }
+                    else
+                    {
+                        preprocessor_define_macro(pp, macro_name, macro_value);
+                    }
                 }
 
                 while (*p && *p != '\n')
@@ -819,11 +1108,134 @@ char *preprocessor_process(Preprocessor *pp, const char *input, const char *file
                     name[i] = '\0';
 
                     // 查找宏定义
-                    const char *value = preprocessor_get_macro_value(pp, name);
-                    if (value)
+                    MacroDefinition *macro = NULL;
+                    for (int j = 0; j < pp->num_macros; j++)
                     {
-                        // 展开宏
-                        output_string(pp, value);
+                        if (strcmp(pp->macros[j].name, name) == 0)
+                        {
+                            macro = &pp->macros[j];
+                            break;
+                        }
+                    }
+
+                    if (macro)
+                    {
+                        // 检查是否是函数宏
+                        if (macro->is_function)
+                        {
+                            // 跳过空白
+                            const char *saved_p = p;
+                            p = skip_whitespace(p);
+                            
+                            if (*p == '(')
+                            {
+                                p++; // 跳过 '('
+                                
+                                // 解析实参
+                                char **arg_values = (char **)malloc(16 * sizeof(char *));
+                                int num_args = 0;
+                                char *va_args_str = NULL;
+                                
+                                while (*p && *p != ')' && num_args < 16)
+                                {
+                                    p = skip_whitespace(p);
+                                    
+                                    // 提取实参值
+                                    char arg[256];
+                                    int k = 0;
+                                    int paren_depth = 0;
+                                    
+                                    while (*p && (paren_depth > 0 || (*p != ',' && *p != ')')) && k < 255)
+                                    {
+                                        if (*p == '(') paren_depth++;
+                                        if (*p == ')') paren_depth--;
+                                        if (paren_depth >= 0)
+                                        {
+                                            arg[k++] = *p++;
+                                        }
+                                    }
+                                    arg[k] = '\0';
+                                    
+                                    // 去除尾部空白
+                                    while (k > 0 && isspace(arg[k - 1]))
+                                    {
+                                        arg[--k] = '\0';
+                                    }
+                                    
+                                    if (k > 0)
+                                    {
+                                        if (macro->is_variadic && num_args >= macro->num_params)
+                                        {
+                                            // 可变参数，收集到va_args
+                                            if (va_args_str == NULL)
+                                            {
+                                                va_args_str = strdup(arg);
+                                            }
+                                            else
+                                            {
+                                                char *tmp = (char *)malloc(strlen(va_args_str) + strlen(arg) + 3);
+                                                sprintf(tmp, "%s, %s", va_args_str, arg);
+                                                free(va_args_str);
+                                                va_args_str = tmp;
+                                            }
+                                        }
+                                        else
+                                        {
+                                            arg_values[num_args++] = strdup(arg);
+                                        }
+                                    }
+                                    
+                                    p = skip_whitespace(p);
+                                    if (*p == ',')
+                                    {
+                                        p++;
+                                    }
+                                }
+                                
+                                if (*p == ')')
+                                {
+                                    p++;
+                                }
+                                
+                                // 展开宏，应用参数替换和运算符处理
+                                char *expanded = process_macro_operators(
+                                    macro->value,
+                                    macro->params,
+                                    arg_values,
+                                    macro->num_params,
+                                    macro->is_variadic,
+                                    va_args_str
+                                );
+                                
+                                output_string(pp, expanded);
+                                free(expanded);
+                                
+                                // 清理
+                                for (int k = 0; k < num_args; k++)
+                                {
+                                    free(arg_values[k]);
+                                }
+                                free(arg_values);
+                                if (va_args_str)
+                                {
+                                    free(va_args_str);
+                                }
+                            }
+                            else
+                            {
+                                // 没有'('，不展开函数宏，原样输出
+                                p = saved_p;
+                                while (start < p)
+                                {
+                                    output_char(pp, *start++);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            // 对象宏，直接展开
+                            output_string(pp, macro->value);
+                        }
                     }
                     else
                     {

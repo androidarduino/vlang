@@ -98,16 +98,18 @@ int types_compatible(TypeInfo *t1, TypeInfo *t2)
     {
         // 特殊情况：数值类型之间可以隐式转换
         // int, float, double, long, short, char, unsigned 可以互相转换
-        DataType numeric_types[] = {TYPE_INT, TYPE_FLOAT, TYPE_DOUBLE, 
-                                     TYPE_LONG, TYPE_SHORT, TYPE_CHAR, TYPE_UNSIGNED};
+        DataType numeric_types[] = {TYPE_INT, TYPE_FLOAT, TYPE_DOUBLE,
+                                    TYPE_LONG, TYPE_SHORT, TYPE_CHAR, TYPE_UNSIGNED};
         int t1_is_numeric = 0, t2_is_numeric = 0;
-        
+
         for (int i = 0; i < 7; i++)
         {
-            if (t1->base_type == numeric_types[i]) t1_is_numeric = 1;
-            if (t2->base_type == numeric_types[i]) t2_is_numeric = 1;
+            if (t1->base_type == numeric_types[i])
+                t1_is_numeric = 1;
+            if (t2->base_type == numeric_types[i])
+                t2_is_numeric = 1;
         }
-        
+
         if (t1_is_numeric && t2_is_numeric)
         {
             return 1; // 数值类型间可以转换

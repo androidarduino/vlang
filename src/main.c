@@ -14,12 +14,14 @@ extern FILE *yyin;
 void print_usage(const char *program_name) {
     printf("Usage: %s [options] <input.c> [input2.c ...]\n", program_name);
     printf("\nOptions:\n");
+    printf("  -S           Generate assembly code only (.s files)\n");
     printf("  -c           Compile only (generate .o files)\n");
     printf("  -o <file>    Output file name\n");
     printf("  --debug      Enable debug output (AST and symbol table)\n");
     printf("  -h, --help   Show this help message\n");
     printf("\nExamples:\n");
     printf("  %s program.c              # Compile to executable 'output'\n", program_name);
+    printf("  %s -S program.c           # Generate program.s (assembly)\n", program_name);
     printf("  %s -o test test.c         # Compile to executable 'test'\n", program_name);
     printf("  %s -c file1.c file2.c     # Generate file1.o and file2.o\n", program_name);
     printf("  %s file1.c file2.c        # Compile and link multiple files\n", program_name);
@@ -148,12 +150,15 @@ int main(int argc, char **argv) {
     char *output_file = NULL;
     char **input_files = NULL;
     int num_input_files = 0;
-    int compile_only = 0;  // -c选项
+    int compile_only = 0;    // -c选项：编译到.o
+    int assembly_only = 0;   // -S选项：编译到.s
     int debug_mode = 0;
     
     // Parse command line arguments
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-c") == 0) {
+        if (strcmp(argv[i], "-S") == 0) {
+            assembly_only = 1;
+        } else if (strcmp(argv[i], "-c") == 0) {
             compile_only = 1;
         } else if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
             output_file = argv[++i];
@@ -184,7 +189,9 @@ int main(int argc, char **argv) {
     printf("════════════════════════════════════════════════════════\n");
     printf("🚀 C Compiler - Multi-File Compilation\n");
     printf("════════════════════════════════════════════════════════\n");
-    printf("Mode: %s\n", compile_only ? "Compile only (-c)" : "Compile and link");
+    const char *mode_str = assembly_only ? "Assembly only (-S)" : 
+                           (compile_only ? "Compile only (-c)" : "Compile and link");
+    printf("Mode: %s\n", mode_str);
     printf("Input files: %d\n", num_input_files);
     
     // Array to store object files
@@ -221,7 +228,30 @@ int main(int argc, char **argv) {
     printf("✓ All files compiled successfully!\n");
     printf("════════════════════════════════════════════════════════\n\n");
     
-    if (compile_only) {
+    if (assembly_only) {
+        // -S mode: keep assembly files only
+        printf("[Assembly files generated]\n");
+        for (int i = 0; i < num_input_files; i++) {
+            printf("  ✓ %s\n", object_files[i]);
+        }
+        
+        printf("\n");
+        printf("════════════════════════════════════════════════════════\n");
+        printf("🎉 Assembly generation successful!\n");
+        printf("════════════════════════════════════════════════════════\n\n");
+        printf("Assembly files:\n");
+        for (int i = 0; i < num_input_files; i++) {
+            printf("  %s\n", object_files[i]);
+        }
+        
+        // Cleanup
+        for (int i = 0; i < num_input_files; i++) {
+            free(object_files[i]);
+        }
+        free(object_files);
+        free(input_files);
+        return 0;
+    } else if (compile_only) {
         // -c mode: assemble to .o files
         printf("[Assembling to object files]\n");
         for (int i = 0; i < num_input_files; i++) {
