@@ -14,6 +14,13 @@ typedef struct LoopContext
     struct LoopContext *parent; // 父循环上下文
 } LoopContext;
 
+// 字符串常量结构
+typedef struct StringConstant
+{
+    int label;     // 字符串标签编号 (.LC0, .LC1, ...)
+    char *content; // 字符串内容
+} StringConstant;
+
 // 代码生成器结构
 typedef struct CodeGenerator
 {
@@ -24,6 +31,9 @@ typedef struct CodeGenerator
     int max_stack_size;         // 最大栈大小
     LoopContext *loop_context;  // 当前循环上下文（用于 break/continue）
     int return_label;           // 当前函数的返回标签
+    StringConstant **strings;   // 字符串常量数组
+    int num_strings;            // 字符串常量数量
+    int string_capacity;        // 字符串数组容量
 } CodeGenerator;
 
 // 主要函数

@@ -19,6 +19,9 @@ CodeGenerator *codegen_create(FILE *output, SemanticAnalyzer *analyzer)
     gen->max_stack_size = 0;
     gen->loop_context = NULL;
     gen->return_label = 0;
+    gen->strings = NULL;
+    gen->num_strings = 0;
+    gen->string_capacity = 0;
     return gen;
 }
 
@@ -27,6 +30,16 @@ void codegen_destroy(CodeGenerator *gen)
 {
     if (gen)
     {
+        // 释放字符串常量
+        for (int i = 0; i < gen->num_strings; i++)
+        {
+            if (gen->strings[i])
+            {
+                free(gen->strings[i]->content);
+                free(gen->strings[i]);
+            }
+        }
+        free(gen->strings);
         free(gen);
     }
 }
@@ -35,6 +48,76 @@ void codegen_destroy(CodeGenerator *gen)
 int new_label(CodeGenerator *gen)
 {
     return gen->label_counter++;
+}
+
+// 添加字符串常量并返回其标签编号
+int add_string_constant(CodeGenerator *gen, const char *str)
+{
+    // 检查是否需要扩展数组
+    if (gen->num_strings >= gen->string_capacity)
+    {
+        int new_capacity = gen->string_capacity == 0 ? 8 : gen->string_capacity * 2;
+        StringConstant **new_strings = (StringConstant **)realloc(
+            gen->strings, new_capacity * sizeof(StringConstant *));
+        if (!new_strings)
+        {
+            fprintf(stderr, "Error: Failed to allocate memory for string constants\n");
+            exit(1);
+        }
+        gen->strings = new_strings;
+        gen->string_capacity = new_capacity;
+    }
+
+    // 创建新的字符串常量
+    StringConstant *sc = (StringConstant *)malloc(sizeof(StringConstant));
+    if (!sc)
+    {
+        fprintf(stderr, "Error: Failed to allocate string constant\n");
+        exit(1);
+    }
+
+    sc->label = gen->num_strings;
+
+    // 去掉字符串首尾的引号
+    // str 是 "Hello" 形式，需要变成 Hello
+    size_t len = strlen(str);
+    if (len >= 2 && str[0] == '"' && str[len - 1] == '"')
+    {
+        // 复制去掉首尾引号的内容
+        sc->content = (char *)malloc(len - 1); // len-2个字符 + '\0'
+        if (!sc->content)
+        {
+            fprintf(stderr, "Error: Failed to allocate string content\n");
+            exit(1);
+        }
+        strncpy(sc->content, str + 1, len - 2);
+        sc->content[len - 2] = '\0';
+    }
+    else
+    {
+        // 没有引号，直接复制
+        sc->content = strdup(str);
+    }
+
+    gen->strings[gen->num_strings] = sc;
+    gen->num_strings++;
+
+    return sc->label;
+}
+
+// 输出所有字符串常量到 .rodata 段
+void emit_string_constants(CodeGenerator *gen)
+{
+    if (gen->num_strings == 0)
+        return;
+
+    emit(gen, "    .section .rodata");
+    for (int i = 0; i < gen->num_strings; i++)
+    {
+        emit(gen, ".LC%d:", gen->strings[i]->label);
+        emit(gen, "    .string \"%s\"", gen->strings[i]->content);
+    }
+    emit(gen, "");
 }
 
 // 输出汇编指令
@@ -103,6 +186,15 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
         // 简化：将 float 转为 int
         emit(gen, "    movq $%d, %%rax  # Load float as int", (int)node->value.float_val);
         break;
+
+    case AST_STRING_LITERAL:
+    {
+        // 添加字符串常量并获取标签
+        int label = add_string_constant(gen, node->value.string_val);
+        // 加载字符串地址到rax
+        emit(gen, "    leaq .LC%d(%%rip), %%rax  # Load string address", label);
+        break;
+    }
 
     case AST_IDENTIFIER:
     {
@@ -231,15 +323,15 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
             gen_expression(gen, index_node);
             push_reg(gen, "rax"); // 保存索引
 
-            // 获取数组基地址
+            // 获取数组基地址（arr[0]）
             if (array_node->type == AST_IDENTIFIER)
             {
                 Symbol *symbol = (Symbol *)array_node->semantic_info;
                 if (symbol)
                 {
-                    // 数组在栈上，使用负偏移
+                    // arr[0]的地址
                     int offset = -(symbol->offset + 8);
-                    emit(gen, "    leaq %d(%%rbp), %%rbx  # Load array base address (assign)", offset);
+                    emit(gen, "    leaq %d(%%rbp), %%rbx  # Load array base (arr[0]) for assign", offset);
                 }
             }
             else
@@ -251,9 +343,10 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
             // 弹出索引
             pop_reg(gen, "rax");
 
-            // 计算元素地址
+            // 计算元素地址：base - index*8（栈向下增长）
             emit(gen, "    imulq $8, %%rax  # Calculate offset (index * 8)");
-            emit(gen, "    addq %%rbx, %%rax  # Add base address");
+            emit(gen, "    subq %%rax, %%rbx  # Subtract offset from base");
+            emit(gen, "    movq %%rbx, %%rax  # Move element address to rax");
             push_reg(gen, "rax"); // 保存元素地址
 
             // 计算右侧表达式的值
@@ -405,36 +498,33 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
 
         // 计算索引
         gen_expression(gen, index_node);
-        push_reg(gen, "rax"); // 保存索引
+        emit(gen, "    movq %%rax, %%rcx  # Save index in rcx");
 
-        // 获取数组地址
+        // 获取数组基地址到 rax
         if (array_node->type == AST_IDENTIFIER)
         {
             Symbol *symbol = (Symbol *)array_node->semantic_info;
             if (symbol)
             {
-                // 数组在栈上，计算基地址
-                // symbol->offset 是第一个元素的偏移量
-                int offset = -(symbol->offset + 8);
-                emit(gen, "    leaq %d(%%rbp), %%rbx  # Load array base address", offset);
+                // 数组在栈上，arr[0]的地址
+                // symbol->offset = 0 意味着第一个元素在 -8(%rbp)
+                int base_offset = -(symbol->offset + 8);
+                emit(gen, "    leaq %d(%%rbp), %%rax  # Load array base (arr[0])", base_offset);
             }
         }
         else
         {
             // 更复杂的数组表达式
             gen_expression(gen, array_node);
-            emit(gen, "    movq %%rax, %%rbx  # Array base address");
+            // 基地址已经在 rax 中
         }
 
-        // 弹出索引
-        pop_reg(gen, "rax");
+        // 计算偏移：index * element_size（8字节）
+        // rcx 中是索引，rax 中是基地址（arr[0]的地址）
+        emit(gen, "    imulq $8, %%rcx  # Calculate offset (index * 8)");
 
-        // 计算偏移：index * element_size
-        // 假设元素大小为 8 字节（int/指针）
-        emit(gen, "    imulq $8, %%rax  # Calculate offset (index * 8)");
-
-        // 计算元素地址: base + offset
-        emit(gen, "    addq %%rbx, %%rax  # Add base address");
+        // 计算元素地址: base - offset（因为栈向下增长）
+        emit(gen, "    subq %%rcx, %%rax  # Subtract offset (stack grows down)");
 
         // 加载元素值
         emit(gen, "    movq (%%rax), %%rax  # Load array element");
@@ -479,7 +569,7 @@ void gen_statement(CodeGenerator *gen, ASTNode *node)
         {
             ASTNode *type_spec = node->children[0];
             ASTNode *declarator = node->children[1];
-
+            
             // 如果是赋值表达式（带初始化）
             if (declarator->type == AST_ASSIGN_EXPR)
             {
@@ -490,19 +580,29 @@ void gen_statement(CodeGenerator *gen, ASTNode *node)
                     // 处理数组初始化列表
                     if (init_expr->type == AST_INIT_LIST)
                     {
-                        // 获取数组符号信息
+                        // 获取数组符号信息 - 递归查找有semantic_info的节点
                         Symbol *symbol = NULL;
-                        ASTNode *id_node = declarator->children[0];
-
-                        // 遍历查找标识符节点
-                        while (id_node && id_node->type == AST_DECLARATOR && id_node->num_children > 0)
+                        ASTNode *search_node = declarator->children[0];
+                        int depth = 0;
+                        
+                        while (search_node && depth < 10)
                         {
-                            id_node = id_node->children[0];
-                        }
-
-                        if (id_node && id_node->type == AST_IDENTIFIER)
-                        {
-                            symbol = (Symbol *)id_node->semantic_info;
+                            if (search_node->semantic_info)
+                            {
+                                symbol = (Symbol *)search_node->semantic_info;
+                                break;
+                            }
+                            
+                            // 尝试进入第一个子节点
+                            if (search_node->num_children > 0)
+                            {
+                                search_node = search_node->children[0];
+                                depth++;
+                            }
+                            else
+                            {
+                                break;
+                            }
                         }
 
                         if (symbol)
@@ -513,8 +613,11 @@ void gen_statement(CodeGenerator *gen, ASTNode *node)
                                 // 计算初始化表达式的值
                                 gen_expression(gen, init_expr->children[i]);
 
-                                // 存储到数组元素位置：offset + i * 8
-                                int elem_offset = symbol->offset + (i * 8);
+                                // 存储到数组元素位置
+                                // 数组在栈上：arr[0]在-offset-8, arr[1]在-offset-16, ...
+                                // offset是从栈顶开始的偏移（正值）
+                                // rbp相对：arr[i] = -(offset + (i+1)*8)
+                                int elem_offset = -(symbol->offset + (i + 1) * 8);
                                 emit(gen, "    movq %%rax, %d(%%rbp)  # Initialize array[%d]",
                                      elem_offset, i);
                             }
@@ -769,9 +872,15 @@ void generate_code(CodeGenerator *gen, ASTNode *root)
 
     // 输出文件头
     emit(gen, "    .file \"output.c\"");
+
+    // 首先生成所有代码到临时缓冲区，同时收集字符串常量
+    // 为简化起见，我们先遍历AST收集所有函数的代码到内存
+    // 但这会很复杂。更简单的方法：第一遍收集字符串，第二遍生成代码
+    // 或者：将字符串段放在最后
+
     emit(gen, "    .text");
 
-    // 遍历所有函数
+    // 遍历所有函数（这会收集字符串常量）
     for (int i = 0; i < root->num_children; i++)
     {
         if (root->children[i]->type == AST_FUNCTION_DEF)
@@ -779,6 +888,10 @@ void generate_code(CodeGenerator *gen, ASTNode *root)
             gen_function(gen, root->children[i]);
         }
     }
+
+    // 在代码生成完毕后输出字符串常量（.rodata段）
+    emit(gen, "");
+    emit_string_constants(gen);
 
     // 输出文件尾
     emit(gen, "");
