@@ -88,9 +88,11 @@ declarator:
         free($1);
     }
     | STAR declarator {
-        $$ = $2;
-        // Increment pointer level in semantic analysis
-        $$->value.int_val = $$->value.int_val + 1;  // Track pointer levels
+        // 创建一个包装节点来表示指针声明
+        ASTNode *ptr_node = create_ast_node(AST_DECLARATOR, yylineno);
+        ptr_node->value.int_val = -1;  // 特殊标记：-1表示指针声明
+        add_child(ptr_node, $2);  // 子节点是被指向的声明
+        $$ = ptr_node;
     }
     | declarator LPAREN RPAREN {
         $$ = $1;

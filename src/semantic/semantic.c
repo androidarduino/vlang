@@ -119,6 +119,42 @@ TypeInfo *check_binary_operation(SemanticAnalyzer *analyzer, OperatorType op,
     // 算术运算符
     if (op == OP_ADD || op == OP_SUB || op == OP_MUL || op == OP_DIV || op == OP_MOD)
     {
+        // 指针算术：pointer + integer 或 integer + pointer
+        if (op == OP_ADD)
+        {
+            // 指针 + 整数
+            if (left->pointer_level > 0 && right->base_type == TYPE_INT)
+            {
+                return left; // 返回指针类型
+            }
+            // 整数 + 指针
+            if (left->base_type == TYPE_INT && right->pointer_level > 0)
+            {
+                return right; // 返回指针类型
+            }
+        }
+
+        // 指针算术：pointer - integer 或 pointer - pointer
+        if (op == OP_SUB)
+        {
+            // 指针 - 整数
+            if (left->pointer_level > 0 && right->base_type == TYPE_INT)
+            {
+                return left; // 返回指针类型
+            }
+            // 指针 - 指针（返回整数，表示元素个数）
+            if (left->pointer_level > 0 && right->pointer_level > 0)
+            {
+                if (!types_compatible(left, right))
+                {
+                    semantic_warning(analyzer, lineno,
+                                     "Subtracting incompatible pointer types");
+                }
+                return create_type(TYPE_INT); // 返回差值
+            }
+        }
+
+        // 普通算术运算
         if (left->base_type != TYPE_INT && left->base_type != TYPE_FLOAT)
         {
             semantic_error(analyzer, lineno,
@@ -146,6 +182,25 @@ TypeInfo *check_binary_operation(SemanticAnalyzer *analyzer, OperatorType op,
     if (op == OP_LT || op == OP_GT || op == OP_LE || op == OP_GE ||
         op == OP_EQ || op == OP_NE)
     {
+        // 允许指针比较
+        if (left->pointer_level > 0 && right->pointer_level > 0)
+        {
+            if (!types_compatible(left, right))
+            {
+                semantic_warning(analyzer, lineno,
+                                 "Comparing incompatible pointer types: %s and %s",
+                                 type_to_string(left), type_to_string(right));
+            }
+            return create_type(TYPE_INT); // 比较结果是 int (0 或 1)
+        }
+
+        // 允许指针与整数0（NULL）比较
+        if ((left->pointer_level > 0 && right->base_type == TYPE_INT) ||
+            (left->base_type == TYPE_INT && right->pointer_level > 0))
+        {
+            return create_type(TYPE_INT);
+        }
+
         if (!types_compatible(left, right))
         {
             semantic_warning(analyzer, lineno,
@@ -536,8 +591,8 @@ void analyze_declaration(SemanticAnalyzer *analyzer, ASTNode *node)
         id_node_temp = declarator->children[0];
     }
 
-    // 处理多维数组：遍历嵌套的DECLARATOR节点
-    // 收集所有数组维度，直到找到变量名
+    // 处理多维数组和指针：遍历嵌套的DECLARATOR节点
+    // 收集所有数组维度和指针级别，直到找到变量名
     int *array_dimensions = NULL;
     int num_dimensions = 0;
     int dim_capacity = 4;
@@ -545,13 +600,20 @@ void analyze_declaration(SemanticAnalyzer *analyzer, ASTNode *node)
 
     ASTNode *current = id_node_temp;
 
-    // 遍历DECLARATOR链，收集数组维度
+    // 遍历DECLARATOR链，收集数组维度和指针级别
     while (current && current->type == AST_DECLARATOR)
     {
         if (current->num_children > 0)
         {
+            // 如果int_val == -1，这是一个指针声明
+            if (current->value.int_val == -1)
+            {
+                pointer_level++;
+                // 移动到子节点
+                current = current->children[0];
+            }
             // 如果int_val > 0，这是一个数组维度
-            if (current->value.int_val > 0)
+            else if (current->value.int_val > 0)
             {
                 // 确保有足够空间
                 if (num_dimensions >= dim_capacity)
@@ -560,10 +622,14 @@ void analyze_declaration(SemanticAnalyzer *analyzer, ASTNode *node)
                     array_dimensions = (int *)realloc(array_dimensions, dim_capacity * sizeof(int));
                 }
                 array_dimensions[num_dimensions++] = current->value.int_val;
+                // 移动到子节点
+                current = current->children[0];
             }
-
-            // 移动到子节点
-            current = current->children[0];
+            else
+            {
+                // 其他情况（函数参数等），继续移动
+                current = current->children[0];
+            }
         }
         else
         {
@@ -582,7 +648,16 @@ void analyze_declaration(SemanticAnalyzer *analyzer, ASTNode *node)
         var_name = current->value.string_val;
     }
 
-    // 对于多维数组，创建嵌套的数组类型
+    // 先处理指针类型
+    if (pointer_level > 0)
+    {
+        for (int i = 0; i < pointer_level; i++)
+        {
+            var_type = create_pointer_type(var_type);
+        }
+    }
+
+    // 然后处理多维数组（如果有）
     if (num_dimensions > 0)
     {
         // 从最内层开始构建类型（反向遍历维度）

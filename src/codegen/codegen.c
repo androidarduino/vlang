@@ -170,6 +170,34 @@ void gen_epilogue(CodeGenerator *gen)
     emit(gen, "    ret");
 }
 
+// 辅助函数：检查表达式是否为指针类型
+static int is_pointer_expression(ASTNode *node)
+{
+    if (!node)
+        return 0;
+
+    // 如果节点有semantic_info，尝试获取类型
+    if (node->semantic_info)
+    {
+        Symbol *symbol = (Symbol *)node->semantic_info;
+        if (symbol && symbol->type)
+        {
+            return symbol->type->pointer_level > 0;
+        }
+    }
+
+    // 对于一元表达式（取地址），结果是指针
+    if (node->type == AST_UNARY_EXPR && node->value.op_type == OP_ADDR)
+    {
+        return 1;
+    }
+
+    // 对于数组下标，结果不是指针（是元素值）
+    // 但 &arr[i] 是指针
+
+    return 0;
+}
+
 // 生成表达式代码（结果放在 %rax）
 void gen_expression(CodeGenerator *gen, ASTNode *node)
 {
@@ -232,11 +260,58 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
         switch (node->value.op_type)
         {
         case OP_ADD:
-            emit(gen, "    addq %%rbx, %%rax  # Add");
+        {
+            // 检查是否是指针算术
+            int left_is_ptr = is_pointer_expression(node->children[0]);
+            int right_is_ptr = is_pointer_expression(node->children[1]);
+
+            if (left_is_ptr && !right_is_ptr)
+            {
+                // 指针 + 整数：缩放整数并减去（栈向下增长）
+                emit(gen, "    imulq $8, %%rbx  # Scale integer for pointer arithmetic");
+                emit(gen, "    subq %%rbx, %%rax  # Add (pointer + integer, stack grows down)");
+            }
+            else if (!left_is_ptr && right_is_ptr)
+            {
+                // 整数 + 指针：缩放整数并减去
+                emit(gen, "    imulq $8, %%rax  # Scale integer for pointer arithmetic");
+                emit(gen, "    subq %%rax, %%rbx  # Add (integer + pointer, stack grows down)");
+                emit(gen, "    movq %%rbx, %%rax  # Result in rax");
+            }
+            else
+            {
+                // 普通整数加法
+                emit(gen, "    addq %%rbx, %%rax  # Add");
+            }
             break;
+        }
         case OP_SUB:
-            emit(gen, "    subq %%rbx, %%rax  # Subtract");
+        {
+            // 检查是否是指针算术
+            int left_is_ptr = is_pointer_expression(node->children[0]);
+            int right_is_ptr = is_pointer_expression(node->children[1]);
+
+            if (left_is_ptr && !right_is_ptr)
+            {
+                // 指针 - 整数：缩放整数并加上（栈向下增长，减去整数意味着向高地址）
+                emit(gen, "    imulq $8, %%rbx  # Scale integer for pointer arithmetic");
+                emit(gen, "    addq %%rbx, %%rax  # Subtract (pointer - integer, stack grows down)");
+            }
+            else if (left_is_ptr && right_is_ptr)
+            {
+                // 指针 - 指针：结果是元素个数（需要除以8）
+                emit(gen, "    subq %%rbx, %%rax  # Subtract (pointer - pointer)");
+                emit(gen, "    movq $8, %%rbx");
+                emit(gen, "    cqto  # Sign extend");
+                emit(gen, "    idivq %%rbx  # Divide by element size");
+            }
+            else
+            {
+                // 普通整数减法
+                emit(gen, "    subq %%rbx, %%rax  # Subtract");
+            }
             break;
+        }
         case OP_MUL:
             emit(gen, "    imulq %%rbx, %%rax  # Multiply");
             break;
@@ -450,6 +525,28 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
                     int offset = -(symbol->offset + 8);
                     emit(gen, "    leaq %d(%%rbp), %%rax  # Load address of '%s'",
                          offset, id->value.string_val);
+                }
+            }
+            else if (node->children[0]->type == AST_ARRAY_SUBSCRIPT)
+            {
+                // 对于数组下标，计算元素的地址（不加载值）
+                ASTNode *array_node = node->children[0]->children[0];
+                ASTNode *index_node = node->children[0]->children[1];
+
+                // 计算索引
+                gen_expression(gen, index_node);
+                emit(gen, "    pushq %%rax");
+
+                // 获取数组基地址
+                Symbol *array_symbol = (Symbol *)array_node->semantic_info;
+                if (array_symbol)
+                {
+                    emit(gen, "    leaq -%d(%%rbp), %%rbx  # Load array base (arr[0]) address",
+                         array_symbol->offset + 8);
+                    emit(gen, "    popq %%rax");
+                    emit(gen, "    imulq $8, %%rax  # Calculate offset (index * 8)");
+                    emit(gen, "    subq %%rax, %%rbx  # Subtract offset from base");
+                    emit(gen, "    movq %%rbx, %%rax  # Move element address to rax");
                 }
             }
             break;
