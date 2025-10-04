@@ -127,8 +127,9 @@ TypeInfo *get_type_from_specifier(ASTNode *node)
 // 类型提升：将较小的类型提升为较大的类型
 TypeInfo *promote_type(TypeInfo *type)
 {
-    if (!type) return type;
-    
+    if (!type)
+        return type;
+
     // 整数提升：char, short → int
     if (type->base_type == TYPE_CHAR || type->base_type == TYPE_SHORT)
     {
@@ -136,47 +137,50 @@ TypeInfo *promote_type(TypeInfo *type)
         promoted->pointer_level = type->pointer_level;
         return promoted;
     }
-    
+
     return type;
 }
 
 // 通用算术转换：找到两个类型的公共类型
 TypeInfo *usual_arithmetic_conversion(TypeInfo *left, TypeInfo *right)
 {
-    if (!left || !right) return left ? left : right;
-    
+    if (!left || !right)
+        return left ? left : right;
+
     // 如果有一个是指针，返回指针类型
-    if (left->pointer_level > 0) return left;
-    if (right->pointer_level > 0) return right;
-    
+    if (left->pointer_level > 0)
+        return left;
+    if (right->pointer_level > 0)
+        return right;
+
     // 先进行整数提升
     left = promote_type(left);
     right = promote_type(right);
-    
+
     // 如果有一个是 double，结果是 double
     if (left->base_type == TYPE_DOUBLE || right->base_type == TYPE_DOUBLE)
     {
         return create_type(TYPE_DOUBLE);
     }
-    
+
     // 如果有一个是 float，结果是 float
     if (left->base_type == TYPE_FLOAT || right->base_type == TYPE_FLOAT)
     {
         return create_type(TYPE_FLOAT);
     }
-    
+
     // 如果有一个是 long，结果是 long
     if (left->base_type == TYPE_LONG || right->base_type == TYPE_LONG)
     {
         return create_type(TYPE_LONG);
     }
-    
+
     // 如果有一个是 unsigned，结果是 unsigned
     if (left->base_type == TYPE_UNSIGNED || right->base_type == TYPE_UNSIGNED)
     {
         return create_type(TYPE_UNSIGNED);
     }
-    
+
     // 默认是 int
     return create_type(TYPE_INT);
 }
@@ -615,16 +619,10 @@ TypeInfo *analyze_expression(SemanticAnalyzer *analyzer, ASTNode *node)
         }
 
         // 数组访问返回元素类型
-        // 如果是指针，则返回指针指向的类型
+        // 优先级：数组 > 指针（因为 int *arr[3] 中 [] 优先于 *）
         TypeInfo *result_type = NULL;
 
-        if (array_type->pointer_level > 0)
-        {
-            result_type = create_type(array_type->base_type);
-            result_type->pointer_level = array_type->pointer_level - 1;
-            result_type->array_size = array_type->array_size;
-        }
-        else if (array_type->array_size >= 0 || array_type->array_dimensions > 0)
+        if (array_type->array_size >= 0 || array_type->array_dimensions > 0)
         {
             // 数组类型，检查是否为多维数组
             if (array_type->array_dimensions > 1)
@@ -655,7 +653,17 @@ TypeInfo *analyze_expression(SemanticAnalyzer *analyzer, ASTNode *node)
                 // 一维数组：返回元素类型
                 result_type = create_type(array_type->base_type);
                 result_type->pointer_level = array_type->pointer_level;
+                // 清除数组信息（元素不再是数组）
+                result_type->array_size = -1;
+                result_type->array_dimensions = 0;
+                result_type->array_sizes = NULL;
             }
+        }
+        else if (array_type->pointer_level > 0)
+        {
+            // 纯指针类型（无数组），返回指针指向的类型
+            result_type = create_type(array_type->base_type);
+            result_type->pointer_level = array_type->pointer_level - 1;
         }
         else
         {
@@ -804,7 +812,6 @@ void analyze_declaration(SemanticAnalyzer *analyzer, ASTNode *node)
 
     // 处理指针类型和数组类型：根据 declarator 中的信息调整类型
     TypeInfo *var_type = base_type;
-    int pointer_level = 0;
     int array_size = -1;
     const char *var_name = NULL;
 
@@ -816,15 +823,27 @@ void analyze_declaration(SemanticAnalyzer *analyzer, ASTNode *node)
     }
 
     // 处理多维数组和指针：遍历嵌套的DECLARATOR节点
-    // 收集所有数组维度和指针级别，直到找到变量名
-    int *array_dimensions = NULL;
-    int num_dimensions = 0;
-    int dim_capacity = 4;
-    array_dimensions = (int *)malloc(dim_capacity * sizeof(int));
+    // 使用栈来记录类型修饰符的顺序（支持指针数组 int *arr[3]）
+    typedef enum
+    {
+        MOD_POINTER,
+        MOD_ARRAY
+    } ModifierType;
+
+    typedef struct
+    {
+        ModifierType type;
+        int size; // 用于MOD_ARRAY，存储数组大小
+    } TypeModifier;
+
+    TypeModifier *modifiers = NULL;
+    int num_modifiers = 0;
+    int mod_capacity = 4;
+    modifiers = (TypeModifier *)malloc(mod_capacity * sizeof(TypeModifier));
 
     ASTNode *current = id_node_temp;
 
-    // 遍历DECLARATOR链，收集数组维度和指针级别
+    // 遍历DECLARATOR链，收集类型修饰符（按遇到的顺序）
     while (current && current->type == AST_DECLARATOR)
     {
         if (current->num_children > 0)
@@ -832,20 +851,30 @@ void analyze_declaration(SemanticAnalyzer *analyzer, ASTNode *node)
             // 如果int_val == -1，这是一个指针声明
             if (current->value.int_val == -1)
             {
-                pointer_level++;
+                if (num_modifiers >= mod_capacity)
+                {
+                    mod_capacity *= 2;
+                    modifiers = (TypeModifier *)realloc(modifiers, mod_capacity * sizeof(TypeModifier));
+                }
+                modifiers[num_modifiers].type = MOD_POINTER;
+                modifiers[num_modifiers].size = 0;
+                num_modifiers++;
+
                 // 移动到子节点
                 current = current->children[0];
             }
             // 如果int_val > 0，这是一个数组维度
             else if (current->value.int_val > 0)
             {
-                // 确保有足够空间
-                if (num_dimensions >= dim_capacity)
+                if (num_modifiers >= mod_capacity)
                 {
-                    dim_capacity *= 2;
-                    array_dimensions = (int *)realloc(array_dimensions, dim_capacity * sizeof(int));
+                    mod_capacity *= 2;
+                    modifiers = (TypeModifier *)realloc(modifiers, mod_capacity * sizeof(TypeModifier));
                 }
-                array_dimensions[num_dimensions++] = current->value.int_val;
+                modifiers[num_modifiers].type = MOD_ARRAY;
+                modifiers[num_modifiers].size = current->value.int_val;
+                num_modifiers++;
+
                 // 移动到子节点
                 current = current->children[0];
             }
@@ -872,33 +901,53 @@ void analyze_declaration(SemanticAnalyzer *analyzer, ASTNode *node)
         var_name = current->value.string_val;
     }
 
-    // 先处理指针类型
-    if (pointer_level > 0)
+    // 按照逆序应用类型修饰符（从内到外）
+    // 例如：int *arr[3] → AST: STAR -> [3] -> arr
+    // 修饰符顺序: [POINTER, ARRAY[3]]
+    // 逆序应用: int → int[3] → (int*)[3]  即"3个int指针的数组"
+    for (int i = num_modifiers - 1; i >= 0; i--)
     {
-        for (int i = 0; i < pointer_level; i++)
+        if (modifiers[i].type == MOD_POINTER)
         {
             var_type = create_pointer_type(var_type);
         }
+        else if (modifiers[i].type == MOD_ARRAY)
+        {
+            var_type = create_array_type(var_type, modifiers[i].size);
+        }
     }
 
-    // 然后处理多维数组（如果有）
+    // 统计数组维度和大小（用于多维数组支持）
+    int num_dimensions = 0;
+    int *array_dimensions = NULL;
+    for (int i = 0; i < num_modifiers; i++)
+    {
+        if (modifiers[i].type == MOD_ARRAY)
+        {
+            num_dimensions++;
+        }
+    }
+
     if (num_dimensions > 0)
     {
-        // 从最内层开始构建类型（反向遍历维度）
-        for (int i = num_dimensions - 1; i >= 0; i--)
+        array_dimensions = (int *)malloc(num_dimensions * sizeof(int));
+        int dim_idx = 0;
+        for (int i = 0; i < num_modifiers; i++)
         {
-            var_type = create_array_type(var_type, array_dimensions[i]);
+            if (modifiers[i].type == MOD_ARRAY)
+            {
+                array_dimensions[dim_idx++] = modifiers[i].size;
+            }
         }
 
         // 存储多维数组信息到类型中
         var_type->array_dimensions = num_dimensions;
-        var_type->array_sizes = array_dimensions; // 转移所有权
-        array_dimensions = NULL;                  // 防止下面free
+        var_type->array_sizes = array_dimensions;
     }
 
-    if (array_dimensions)
+    if (modifiers)
     {
-        free(array_dimensions);
+        free(modifiers);
     }
 
     // 注意：多维数组的类型已经在上面创建了
