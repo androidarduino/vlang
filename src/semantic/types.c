@@ -17,6 +17,8 @@ TypeInfo *create_type(DataType base_type)
     type->array_size = -1;
     type->array_sizes = NULL;
     type->array_dimensions = 0;
+    type->is_const = 0;
+    type->is_volatile = 0;
     type->return_type = NULL;
     type->param_types = NULL;
     type->num_params = 0;

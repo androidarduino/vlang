@@ -124,6 +124,63 @@ TypeInfo *get_type_from_specifier(ASTNode *node)
     return create_type(TYPE_UNKNOWN);
 }
 
+// 类型提升：将较小的类型提升为较大的类型
+TypeInfo *promote_type(TypeInfo *type)
+{
+    if (!type) return type;
+    
+    // 整数提升：char, short → int
+    if (type->base_type == TYPE_CHAR || type->base_type == TYPE_SHORT)
+    {
+        TypeInfo *promoted = create_type(TYPE_INT);
+        promoted->pointer_level = type->pointer_level;
+        return promoted;
+    }
+    
+    return type;
+}
+
+// 通用算术转换：找到两个类型的公共类型
+TypeInfo *usual_arithmetic_conversion(TypeInfo *left, TypeInfo *right)
+{
+    if (!left || !right) return left ? left : right;
+    
+    // 如果有一个是指针，返回指针类型
+    if (left->pointer_level > 0) return left;
+    if (right->pointer_level > 0) return right;
+    
+    // 先进行整数提升
+    left = promote_type(left);
+    right = promote_type(right);
+    
+    // 如果有一个是 double，结果是 double
+    if (left->base_type == TYPE_DOUBLE || right->base_type == TYPE_DOUBLE)
+    {
+        return create_type(TYPE_DOUBLE);
+    }
+    
+    // 如果有一个是 float，结果是 float
+    if (left->base_type == TYPE_FLOAT || right->base_type == TYPE_FLOAT)
+    {
+        return create_type(TYPE_FLOAT);
+    }
+    
+    // 如果有一个是 long，结果是 long
+    if (left->base_type == TYPE_LONG || right->base_type == TYPE_LONG)
+    {
+        return create_type(TYPE_LONG);
+    }
+    
+    // 如果有一个是 unsigned，结果是 unsigned
+    if (left->base_type == TYPE_UNSIGNED || right->base_type == TYPE_UNSIGNED)
+    {
+        return create_type(TYPE_UNSIGNED);
+    }
+    
+    // 默认是 int
+    return create_type(TYPE_INT);
+}
+
 // 检查二元操作的类型
 TypeInfo *check_binary_operation(SemanticAnalyzer *analyzer, OperatorType op,
                                  TypeInfo *left, TypeInfo *right, int lineno)
@@ -722,11 +779,24 @@ void analyze_declaration(SemanticAnalyzer *analyzer, ASTNode *node)
     // 获取基本类型
     TypeInfo *base_type = get_type_from_specifier(node->children[0]);
 
-    // 检查是否是extern声明
+    // 检查各种存储类和类型限定符
     int is_extern = 0;
+    int is_const = 0;
+    int is_volatile = 0;
+
     if (node->children[0]->lineno == -2)
     {
         is_extern = 1;
+    }
+    else if (node->children[0]->lineno == -3)
+    {
+        is_const = 1;
+        base_type->is_const = 1;
+    }
+    else if (node->children[0]->lineno == -4)
+    {
+        is_volatile = 1;
+        base_type->is_volatile = 1;
     }
 
     // 获取声明符（可能包含初始化）

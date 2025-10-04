@@ -665,6 +665,41 @@ void gen_expression(CodeGenerator *gen, ASTNode *node)
         break;
     }
 
+    case AST_CAST_EXPR:
+    {
+        // 类型转换 (type)expr
+        if (node->num_children < 2)
+            break;
+
+        // 生成被转换的表达式
+        gen_expression(gen, node->children[1]);
+        
+        // 根据目标类型进行转换
+        TypeInfo *target_type = (TypeInfo *)node->semantic_info;
+        if (target_type)
+        {
+            if (target_type->base_type == TYPE_FLOAT)
+            {
+                // 转换到float: int -> float
+                emit(gen, "    cvtsi2ss %%rax, %%xmm0  # Cast int to float");
+            }
+            else if (target_type->base_type == TYPE_INT || 
+                     target_type->base_type == TYPE_LONG ||
+                     target_type->base_type == TYPE_SHORT ||
+                     target_type->base_type == TYPE_CHAR)
+            {
+                // 转换到整数类型
+                // 从float转换
+                emit(gen, "    # Cast to int (value already in rax or convert from xmm0)");
+                // 如果源可能是float，尝试转换
+                emit(gen, "    cvttss2si %%xmm0, %%rbx  # Try float to int");
+                emit(gen, "    test %%rax, %%rax");
+                emit(gen, "    cmovz %%rbx, %%rax  # Use float conversion if rax was 0");
+            }
+        }
+        break;
+    }
+
     case AST_UNARY_EXPR:
     {
         if (node->num_children < 1)

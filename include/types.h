@@ -30,6 +30,8 @@ typedef struct TypeInfo
     int array_size;                // 数组大小 (-1 表示非数组)
     int *array_sizes;              // 多维数组大小数组
     int array_dimensions;          // 数组维度数
+    int is_const;                  // 是否是 const 限定
+    int is_volatile;               // 是否是 volatile 限定
     struct TypeInfo *return_type;  // 函数返回类型
     struct TypeInfo **param_types; // 函数参数类型
     int num_params;                // 参数数量
