@@ -390,9 +390,7 @@ compiler/
 │   │   └── preprocessor.c        # 宏展开、条件编译、文件包含
 │   ├── codegen/                  # 代码生成
 │   │   └── codegen.c             # x86-64汇编生成
-│   ├── main.c                    # 编译器入口 (主)
-│   ├── main_new.c                # 备用入口
-│   └── main_old.c                # 旧版入口
+│   └── main.c                    # 编译器入口 (主)
 │
 ├── include/                      # 头文件目录
 │   ├── ast.h                     # AST节点类型定义
