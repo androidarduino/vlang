@@ -677,7 +677,7 @@ static char *process_macro_operators(const char *value, char **param_names, char
         {
             p++;
             p = skip_whitespace(p);
-            
+
             // 提取参数名
             char param_name[256];
             int i = 0;
@@ -686,7 +686,7 @@ static char *process_macro_operators(const char *value, char **param_names, char
                 param_name[i++] = *p++;
             }
             param_name[i] = '\0';
-            
+
             // 查找参数值
             for (int j = 0; j < num_params; j++)
             {
@@ -1126,42 +1126,44 @@ char *preprocessor_process(Preprocessor *pp, const char *input, const char *file
                             // 跳过空白
                             const char *saved_p = p;
                             p = skip_whitespace(p);
-                            
+
                             if (*p == '(')
                             {
                                 p++; // 跳过 '('
-                                
+
                                 // 解析实参
                                 char **arg_values = (char **)malloc(16 * sizeof(char *));
                                 int num_args = 0;
                                 char *va_args_str = NULL;
-                                
+
                                 while (*p && *p != ')' && num_args < 16)
                                 {
                                     p = skip_whitespace(p);
-                                    
+
                                     // 提取实参值
                                     char arg[256];
                                     int k = 0;
                                     int paren_depth = 0;
-                                    
+
                                     while (*p && (paren_depth > 0 || (*p != ',' && *p != ')')) && k < 255)
                                     {
-                                        if (*p == '(') paren_depth++;
-                                        if (*p == ')') paren_depth--;
+                                        if (*p == '(')
+                                            paren_depth++;
+                                        if (*p == ')')
+                                            paren_depth--;
                                         if (paren_depth >= 0)
                                         {
                                             arg[k++] = *p++;
                                         }
                                     }
                                     arg[k] = '\0';
-                                    
+
                                     // 去除尾部空白
                                     while (k > 0 && isspace(arg[k - 1]))
                                     {
                                         arg[--k] = '\0';
                                     }
-                                    
+
                                     if (k > 0)
                                     {
                                         if (macro->is_variadic && num_args >= macro->num_params)
@@ -1184,19 +1186,19 @@ char *preprocessor_process(Preprocessor *pp, const char *input, const char *file
                                             arg_values[num_args++] = strdup(arg);
                                         }
                                     }
-                                    
+
                                     p = skip_whitespace(p);
                                     if (*p == ',')
                                     {
                                         p++;
                                     }
                                 }
-                                
+
                                 if (*p == ')')
                                 {
                                     p++;
                                 }
-                                
+
                                 // 展开宏，应用参数替换和运算符处理
                                 char *expanded = process_macro_operators(
                                     macro->value,
@@ -1204,12 +1206,11 @@ char *preprocessor_process(Preprocessor *pp, const char *input, const char *file
                                     arg_values,
                                     macro->num_params,
                                     macro->is_variadic,
-                                    va_args_str
-                                );
-                                
+                                    va_args_str);
+
                                 output_string(pp, expanded);
                                 free(expanded);
-                                
+
                                 // 清理
                                 for (int k = 0; k < num_args; k++)
                                 {
